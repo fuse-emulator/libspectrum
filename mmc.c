@@ -34,6 +34,10 @@
 #define ERASE_SEQ_ERROR_MASK 0x10
 #define PARAMETER_ERROR_MASK 0x40
 
+#define TOKEN_START_BLOCK        0xFE /* 11111110 */
+#define TOKEN_START_MBWR_BLOCK   0xFC /* 11111100 */
+#define TOKEN_STOP_TRAN          0xFD /* 11111101 */
+
 /* The states while a command is being sent to the card */
 enum command_state_t {
   WAITING_FOR_COMMAND,
@@ -54,8 +58,11 @@ enum command_byte {
   SEND_IF_COND = 8,
   SEND_CSD = 9,
   SEND_CID = 10,
+  STOP_TRANSMISSION = 12,
   READ_SINGLE_BLOCK = 17,
+  READ_MULTIPLE_BLOCK = 18,
   WRITE_BLOCK = 24,
+  WRITE_MULTIPLE_BLOCK = 25,
   ERASE_WR_BLK_START = 32,
   ERASE_WR_BLK_END = 33,
   ERASE = 38,
@@ -127,6 +134,10 @@ struct libspectrum_mmc_card {
   /* CMD55/APP_CMD issued so next command is application specific */
   int cmd55_issued;
 
+  /* A CMD18 multiple block read is in progress: the card streams sectors
+     until the last sector, an error, or CMD12/STOP_TRANSMISSION */
+  int multiple_read_active;
+
   /* Keep progress of ongoing erase sequence */
   enum erase_sequence_t erase_sequence;
 
@@ -134,6 +145,9 @@ struct libspectrum_mmc_card {
   libspectrum_dword erase_block_start, erase_block_end;
 
 };
+
+static void
+mmc_read_multiple_blocks( libspectrum_mmc_card *card );
 
 libspectrum_mmc_card*
 libspectrum_mmc_alloc( void )
@@ -212,6 +226,7 @@ libspectrum_mmc_reset( libspectrum_mmc_card *card )
   card->response_buffer_end = card->response_buffer;
   card->cmd8_issued = 0;
   card->cmd55_issued = 0;
+  card->multiple_read_active = 0;
   card->erase_sequence = SEQ_ERASE_NONE;
   card->erase_block_start = 0;
   card->erase_block_end = 0;
@@ -232,9 +247,14 @@ libspectrum_mmc_commit( libspectrum_mmc_card *card )
 libspectrum_byte
 libspectrum_mmc_read( libspectrum_mmc_card *card )
 {
-  libspectrum_byte r = card->response_buffer_next < card->response_buffer_end ?
-    *(card->response_buffer_next)++ :
-    0xff;
+  libspectrum_byte r = 0xff;
+
+  if( card->response_buffer_next < card->response_buffer_end ) {
+    r = *(card->response_buffer_next)++;
+  } else if( card->multiple_read_active ) {
+    mmc_read_multiple_blocks( card );
+    /* note: even though we've filled the buffer, *this* read request returns 0xff */
+  }
 
   return r;
 }
@@ -252,13 +272,45 @@ parse_command( libspectrum_mmc_card *card, libspectrum_byte b )
   return 1;
 }
 
-static void
-set_response_buffer_r1( libspectrum_mmc_card *card )
+/* static void
+reset_response_buffer( libspectrum_mmc_card *card )
 {
-  card->response_buffer[ 0 ] = card->r1_status;
+  card->response_buffer_end = card->response_buffer_next = card->response_buffer;
+} */
+
+/* static void
+set_response_buffer_size( libspectrum_mmc_card *card, int size )
+{
+  card->response_buffer_next = card->response_buffer;
+  card->response_buffer_end = card->response_buffer + size;
+} */
+
+static void
+set_response_buffer( libspectrum_mmc_card *card, libspectrum_byte value )
+{
+  card->response_buffer[ 0 ] = value;
   card->response_buffer_next = card->response_buffer;
   card->response_buffer_end = card->response_buffer + 1;
 }
+
+static void
+set_response_buffer2( libspectrum_mmc_card *card, libspectrum_byte v1, libspectrum_byte v2 )
+{
+  card->response_buffer[ 0 ] = v1;
+  card->response_buffer[ 1 ] = v2;
+  card->response_buffer_next = card->response_buffer;
+  card->response_buffer_end = card->response_buffer + 2;
+}
+
+/* static void
+append_response_buffer( libspectrum_mmc_card *card, libspectrum_byte value )
+{
+  const int pos = card->response_buffer_end - card->response_buffer_next;
+  card->response_buffer[ pos ] = value;
+  card->response_buffer_end++;
+} */
+
+#define set_response_buffer_r1( c ) set_response_buffer( c, c->r1_status )
 
 static void
 set_response_buffer_r7( libspectrum_mmc_card *card, libspectrum_dword value )
@@ -270,6 +322,15 @@ set_response_buffer_r7( libspectrum_mmc_card *card, libspectrum_dword value )
   card->response_buffer[ 4 ] = ( value & 0x000000ff );
   card->response_buffer_next = card->response_buffer;
   card->response_buffer_end = card->response_buffer + 5;
+}
+
+static void
+set_data_address( libspectrum_mmc_card *card, libspectrum_dword sector_number )
+{
+  card->current_argument[ 3 ] = ( sector_number & 0x000000ff );
+  card->current_argument[ 2 ] = ( sector_number & 0x0000ff00 ) >> 8;
+  card->current_argument[ 1 ] = ( sector_number & 0x00ff0000 ) >> 16;
+  card->current_argument[ 0 ] = ( sector_number & 0xff000000 ) >> 24;
 }
 
 static void
@@ -383,18 +444,54 @@ erase( libspectrum_mmc_card *card )
                                          card->send_buffer );
   }
 
-  card->response_buffer[ 0 ] = card->r1_status; /* R1 command response */
-  card->response_buffer[ 1 ] = 0x01;            /* busy flag */
-  card->response_buffer_next = card->response_buffer;
-  card->response_buffer_end = card->response_buffer + 2;
+  /* R1 command response + busy flag */
+  set_response_buffer2( card, card->r1_status, 0x01 );
 
   reset_erase_sequence( card );
+}
+
+static int
+set_response_buffer_from_sector( libspectrum_mmc_card *card, libspectrum_dword sector_number, int offset )
+{
+  int error;
+
+  /* First byte: Start Block token */
+  card->response_buffer[ offset ] = TOKEN_START_BLOCK;
+  /* Bytes 2-513 filled using libspectrum_ide_read_sector_from_hdf */
+  error = libspectrum_ide_read_sector_from_hdf(
+      &card->drive, card->cache, sector_number, &card->response_buffer[ offset + 1 ]
+  );
+
+  /* Data retrieval error */
+  if( error ) {
+    if( offset == 0 ) {
+      /* 2nd and so on packet, data error token only */
+      set_response_buffer( card, 0x01 ); /* data error token */
+      /* Terminate the multiple block read; the card now waits for CMD12 */
+      card->multiple_read_active = 0;
+      card->command_state = WAITING_FOR_COMMAND;
+    } else {
+      /* First data packet, override command response */
+      /* R1 command response + data error token */
+      set_response_buffer2( card, card->r1_status, 0x01 );
+    }
+    return error;
+  }
+
+  /* Last two bytes: CRC */
+  memset( &card->response_buffer[ offset+1+512 ], 0x00, 2 );
+
+  card->response_buffer_next = card->response_buffer;
+  card->response_buffer_end = card->response_buffer + offset + 1+512+2;
+
+  return LIBSPECTRUM_ERROR_NONE;
 }
 
 static void
 read_single_block( libspectrum_mmc_card *card )
 {
   libspectrum_dword sector_number;
+  int error;
 
   /* Card initialised? */
   if( card->r1_status & IN_IDLE_STATE_MASK ) {
@@ -412,27 +509,79 @@ read_single_block( libspectrum_mmc_card *card )
     return;
   }
 
-  int error = libspectrum_ide_read_sector_from_hdf(
-      &card->drive, card->cache, sector_number, &card->response_buffer[ 2 ]
-  );
+  // Command Response
+  card->response_buffer[ 0 ] = card->r1_status;
+  /* offset=1 since we already have command response in the buffer */
+  error = set_response_buffer_from_sector( card, sector_number, 1 );
 
-  /* Data retrieval error */
-  if( error ) {
-    card->response_buffer[ 0 ] = card->r1_status; /* R1 command response */
-    card->response_buffer[ 1 ] = 0x01;            /* data error token */
+  /* A multiple block read streams sectors until the last sector or an
+     error; CMD12/STOP_TRANSMISSION terminates it */
+  if( !error && READ_MULTIPLE_BLOCK == card->current_command )
+    card->multiple_read_active = 1;
+}
+
+static void
+mmc_read_multiple_blocks( libspectrum_mmc_card *card )
+{
+#ifdef MMC_SIMULATE_MULTI_BLOCK_DELAY
+  if( card->response_buffer_end > (card->response_buffer+256) ) {
+    memset( card->response_buffer, 0xff, 16 );
     card->response_buffer_next = card->response_buffer;
-    card->response_buffer_end = card->response_buffer + 2;
+    card->response_buffer_end = card->response_buffer + 16;
+    return;
+  }
+#endif
+
+  libspectrum_dword sector_number;
+  /* both single and multiple block read start with read_single_block(...) */
+  /* thus we need to advance to the next sector first */
+  sector_number = libspectrum_read_dword_be( card->current_argument ) + 1;
+
+  /* Sector out of range */
+  if( sector_number >= card->total_sectors ) {
+    set_response_buffer( card, 0x08 ); /* data error token: out of range */
+    /* Terminate the multiple block read; the card now waits for CMD12 */
+    card->multiple_read_active = 0;
+    card->command_state = WAITING_FOR_COMMAND;
     return;
   }
 
-  card->response_buffer[ 0 ] = card->r1_status;
-  card->response_buffer[ 1 ] = 0xfe;
+  set_data_address( card, sector_number );
+  /* offset=0 - sector data starts from the beginning of the buffer */
+  set_response_buffer_from_sector( card, sector_number, 0 );
+}
 
-  /* CRC */
-  memset( &card->response_buffer[ 514 ], 0x00, 2 );
+static void
+stop_transmission( libspectrum_mmc_card *card )
+{
+  int i = 0;
+  // typically card may send at least one more byte of the data packet
+  if( card->response_buffer_next < card->response_buffer_end ) {
+    card->response_buffer[ i++ ] = *(card->response_buffer_next);
+    // technically, there may be up to Ncr clock cycles BUSY (0xff)
+    // but we always transfer full bytes, so things are naturally
+    // Ncr aligned
+  } else {
+    // if we have nothing to transmit, it still takes one byte cycle
+    // for card's state machine to process CMD12, hence, the "stuff" byte
+    card->response_buffer[ i++ ] = 0xff;
+#ifdef MMC_TRACE_CMD12
+    libspectrum_print_error(
+        LIBSPECTRUM_ERROR_WARNING,
+        "Received STOP_TRANSMISSION when no data in the buffer (cmd %d)\n",
+        card->current_command );
+#endif /* MMC_TRACE_CMD12 */
+  }
 
+  card->response_buffer[ i ] = card->r1_status;
+  // for write op the response should have trailing busy (0x00) bytes
   card->response_buffer_next = card->response_buffer;
-  card->response_buffer_end = card->response_buffer + 516;
+  card->response_buffer_end = card->response_buffer + i + 1;
+
+  /* A CMD12 terminates an ongoing multiple block read */
+  card->multiple_read_active = 0;
+
+  card->command_state = WAITING_FOR_COMMAND;
 }
 
 static void
@@ -519,6 +668,34 @@ send_cid( libspectrum_mmc_card *card )
   card->response_buffer_end = card->response_buffer + 20;
 }
 
+static void
+send_write_command_response( libspectrum_mmc_card *card )
+{
+  libspectrum_dword sector_number;
+
+  /* Card initialised? */
+  if( card->r1_status & IN_IDLE_STATE_MASK ) {
+    card->r1_status |= ILLEGAL_COMMAND_MASK;
+    set_response_buffer_r1( card );
+    /* and skip 'waiting for token' state */
+    card->command_state = WAITING_FOR_COMMAND;
+    return;
+  }
+
+  sector_number = libspectrum_read_dword_be( card->current_argument );
+
+  /* Sector out of range */
+  if( sector_number >= card->total_sectors ) {
+    card->r1_status |= PARAMETER_ERROR_MASK;
+    set_response_buffer_r1( card );
+    /* and skip 'waiting for token' state */
+    card->command_state = WAITING_FOR_COMMAND;
+    return;
+  }
+
+  set_response_buffer_r1( card );
+}
+
 static int
 do_application_command( libspectrum_mmc_card *card )
 {
@@ -536,7 +713,7 @@ do_application_command( libspectrum_mmc_card *card )
 
       libspectrum_print_error(
           LIBSPECTRUM_ERROR_UNKNOWN,
-          "Unknown MMC application command %d received",
+          "Unsupported MMC application command %d received",
           card->current_command );
       break;
 
@@ -553,6 +730,10 @@ do_application_command( libspectrum_mmc_card *card )
 
     default:
       is_acmd = 0;
+      libspectrum_print_error(
+          LIBSPECTRUM_ERROR_UNKNOWN,
+          "Unknown MMC application command %d received",
+          card->current_command );
       break;
   }
 
@@ -580,11 +761,16 @@ do_standard_command( libspectrum_mmc_card *card )
     case SEND_CID:
       send_cid( card );
       break;
+    case STOP_TRANSMISSION:
+      stop_transmission( card );
+      break;
     case READ_SINGLE_BLOCK:
+    case READ_MULTIPLE_BLOCK:
       read_single_block( card );
       break;
     case WRITE_BLOCK:
-      set_response_buffer_r1( card );
+    case WRITE_MULTIPLE_BLOCK:
+      send_write_command_response( card );
       break;
     case ERASE_WR_BLK_START:
       erase_wr_blk_start( card );
@@ -619,6 +805,9 @@ do_standard_command( libspectrum_mmc_card *card )
 static void
 do_command( libspectrum_mmc_card *card )
 {
+  /* Any new command terminates an ongoing multiple block read */
+  card->multiple_read_active = 0;
+
   /* Previous APP_CMD indicates to the card that the next command is an
      application specific command rather than a standard command */
   if( card->cmd55_issued ) {
@@ -650,33 +839,47 @@ do_command( libspectrum_mmc_card *card )
 }
 
 static void
+write_sector_from_send_buffer( libspectrum_mmc_card *card, libspectrum_dword sector_number )
+{
+  libspectrum_ide_write_sector_to_hdf( &card->drive, card->cache, sector_number,
+   card->send_buffer );
+
+  set_response_buffer2( card, 0x05, 0x01 ); /* data response + busy flag (end of programming) */
+}
+
+static void
 write_single_block( libspectrum_mmc_card *card )
 {
+  /* Note: command response sent earlier by send_write_command_response(...) */
+  /* we only write the data block and return data response token */
   libspectrum_dword sector_number;
 
-  /* Card initialised? */
-  if( card->r1_status & IN_IDLE_STATE_MASK ) {
-    card->r1_status |= ILLEGAL_COMMAND_MASK;
-    set_response_buffer_r1( card );
-    return;
-  }
-
   sector_number = libspectrum_read_dword_be( card->current_argument );
+  /* sector_number is validated by the send_write_command_response(...) */
+  write_sector_from_send_buffer( card, sector_number );
+}
 
-  /* Sector out of range */
+static void
+write_multiple_block( libspectrum_mmc_card *card )
+{
+  /* unlike read op we have two distinct paths for single and multiple blocks */
+  /* all sectors of multi-block sequence are handled here */
+  libspectrum_dword sector_number = libspectrum_read_dword_be( card->current_argument );
+
   if( sector_number >= card->total_sectors ) {
-    card->r1_status |= PARAMETER_ERROR_MASK;
-    set_response_buffer_r1( card );
+    /*                           xxx0SSS1 */
+    set_response_buffer( card, 0b00001101U ); /* Data Response token: Data Rejected due to a Write Error */
+    /* In case of any error (CRC or Write Error) during Write Multiple Block operation, the host shall stop the
+    data transmission using CMD12. In case of a Write Error (response '110'), the host may send CMD13
+    (SEND_STATUS) in order to get the cause of the write problem. ACMD22 can be used to find the number
+    of well written write blocks. */
+    card->command_state = WAITING_FOR_COMMAND;
     return;
   }
 
-  libspectrum_ide_write_sector_to_hdf( &card->drive, card->cache, sector_number,
-                                       card->send_buffer );
+  set_data_address( card, sector_number + 1 );  /* keep data address for the next iteration */
 
-  card->response_buffer[ 0 ] = 0x05; /* data response */
-  card->response_buffer[ 1 ] = 0x01; /* busy flag (end of programming) */
-  card->response_buffer_next = card->response_buffer;
-  card->response_buffer_end = card->response_buffer + 2;
+  write_sector_from_send_buffer( card, sector_number );
 }
 
 static void
@@ -686,12 +889,50 @@ do_command_data( libspectrum_mmc_card *card )
     case WRITE_BLOCK:
       write_single_block( card );
       break;
+    case WRITE_MULTIPLE_BLOCK:
+      write_multiple_block( card );
+      break;
     default:
       /* This should never happen as it indicates a failure in our state machine */
       libspectrum_print_error(
           LIBSPECTRUM_ERROR_LOGIC,
           "Attempting to execute unknown MMC data command %d\n",
           card->current_command );
+      break;
+  }
+}
+
+static void
+do_data_token( libspectrum_mmc_card *card, libspectrum_byte data )
+{
+  /* make sure this function handles transition to the next state */
+  switch( data ) {
+    case TOKEN_START_BLOCK: /* Read, Write single: Start Block token */
+      card->command_state = WAITING_FOR_DATA;
+      card->data_count = 0;
+      break;
+    case TOKEN_START_MBWR_BLOCK: /* Write multiple: Start Block token */
+      card->command_state = WAITING_FOR_DATA;
+      card->data_count = 0;
+      break;
+    case TOKEN_STOP_TRAN: /* Stop Tran token */
+       // TODO: add busy ?
+      card->command_state = WAITING_FOR_COMMAND;
+      break;
+    case 0xff:
+      /* we explicitly ignore "idle line", if sent to us */
+      break;
+    default:
+      // Here is a descrepancy in the spec:
+      // if host sends anything other than a valid token or a standard high
+      // idle line (0xFF), it is operating entirely outside the boundaries of
+      // the specification.
+      // IIRC, **most** cards ignore anything except valid tokens or idle line.
+      // Hence, we ignore 0xff and log everything else.
+      libspectrum_print_error(
+          LIBSPECTRUM_ERROR_UNKNOWN,
+          "Received unexpected MMC data token %d (cmd %d)\n",
+          data, card->current_command );
       break;
   }
 }
@@ -721,15 +962,17 @@ libspectrum_mmc_write( libspectrum_mmc_card *card, libspectrum_byte data )
       /* reset command error flags except in_idle */
       card->r1_status &= IN_IDLE_STATE_MASK;
 
-      card->command_state = card->current_command == WRITE_BLOCK ?
-        WAITING_FOR_DATA_TOKEN :
-        WAITING_FOR_COMMAND;
+      /* Let do_command(...) override the next state, if necessary */
+      if( card->command_state == WAITING_FOR_CRC ) {
+        card->command_state =
+          card->current_command == WRITE_BLOCK
+              || card->current_command == WRITE_MULTIPLE_BLOCK ?
+          WAITING_FOR_DATA_TOKEN :
+          WAITING_FOR_COMMAND;
+      }
       break;
     case WAITING_FOR_DATA_TOKEN:
-      if( data == 0xfe ) {
-        card->command_state = WAITING_FOR_DATA;
-        card->data_count = 0;
-      }
+      do_data_token( card, data );
       break;
     case WAITING_FOR_DATA:
       card->send_buffer[ card->data_count++ ] = data;
@@ -742,7 +985,12 @@ libspectrum_mmc_write( libspectrum_mmc_card *card, libspectrum_byte data )
       break;
     case WAITING_FOR_DATA_CRC2:
       do_command_data( card );
-      card->command_state = WAITING_FOR_COMMAND;
+      /* Let do_command_data(...) override the next state, if necessary */
+      if( card->command_state == WAITING_FOR_DATA_CRC2 ) {
+        card->command_state = card->current_command == WRITE_MULTIPLE_BLOCK ?
+          WAITING_FOR_DATA_TOKEN :
+          WAITING_FOR_COMMAND;
+      }
       break;
     }
 }
