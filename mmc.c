@@ -59,6 +59,7 @@ enum command_byte {
   SEND_CSD = 9,
   SEND_CID = 10,
   STOP_TRANSMISSION = 12,
+  SET_BLOCKLEN = 16,
   READ_SINGLE_BLOCK = 17,
   READ_MULTIPLE_BLOCK = 18,
   WRITE_BLOCK = 24,
@@ -67,7 +68,8 @@ enum command_byte {
   ERASE_WR_BLK_END = 33,
   ERASE = 38,
   APP_CMD = 55,
-  READ_OCR = 58
+  READ_OCR = 58,
+  CRC_ON_OFF = 59
 };
 
 /* Application specific commands, only some implemented
@@ -764,6 +766,11 @@ do_standard_command( libspectrum_mmc_card *card )
     case STOP_TRANSMISSION:
       stop_transmission( card );
       break;
+    case SET_BLOCKLEN:
+      /* SDHC: LOCK_UNLOCK length only (we do not support it yet) */
+      /* e.g. card->lock_length = get_data_address( card ); */
+      set_response_buffer_r1( card );
+      break;
     case READ_SINGLE_BLOCK:
     case READ_MULTIPLE_BLOCK:
       read_single_block( card );
@@ -789,6 +796,15 @@ do_standard_command( libspectrum_mmc_card *card )
       /* We set only the card capacity status (CCS, bit 30) and card power up
          status bits (bit 31). CCS set indicates an SDHC card. */
       set_response_buffer_r7( card, 0xc0000000 );
+      break;
+    case CRC_ON_OFF: /* [31:1] stuff bits; [0:0] CRC option '1' - ON, '0' - OFF */
+      if( 0 != ( card->current_argument[3] & 0x01 ) ) {
+        card->r1_status |= ILLEGAL_COMMAND_MASK;
+        libspectrum_print_error(
+            LIBSPECTRUM_ERROR_UNKNOWN, "MMC command %d (CRC ON) not implemented",
+            card->current_command );
+      }
+      set_response_buffer_r1( card );
       break;
     default:
       /* Command not implemented or illegal command */
