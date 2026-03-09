@@ -134,6 +134,7 @@ LIBSPECTRUM_ERROR_SLT		Ugly kludge used to indicate that a .z80
 				file contains .slt data
 LIBSPECTRUM_ERROR_INVALID	An invalid parameter was supplied to a
 				function
+LIBSPECTRUM_ERROR_MISSING_ZLIB	zlib support is unavailable or disabled
 LIBSPECTRUM_ERROR_LOGIC		An internal logic error has occurred;
 				should never be seen
 
