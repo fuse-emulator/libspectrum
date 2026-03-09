@@ -1,5 +1,7 @@
 2023-??-??  Philip Kendall  <philip-fuse@shadowmagic.org.uk>
 
+        * libspectrum 1.6.0 released.
+
         * Add loading and saving of .S snapshot files as extracted from D40/D80
           floppy images (Miroslav Ďurčík, Sergio Baldoví).
 
