@@ -760,7 +760,7 @@ test_30( void )
   libspectrum_byte *buffer = NULL;
   size_t length = 0;
   libspectrum_tape *tape;
-  const char *filename = DYNAMIC_TEST_PATH( "standard-tap.tap" );
+  const char *filename = STATIC_TEST_PATH( "standard-tap.tap" );
   test_return_t r;
 
   r = load_tape( &tape, filename, LIBSPECTRUM_ERROR_NONE );
