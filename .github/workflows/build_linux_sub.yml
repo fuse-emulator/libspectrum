@@ -90,7 +90,8 @@ jobs:
           pwd
           ls -la
           echo "Installing dependencies .."
-          sudo apt install -y \
+          sudo apt-get update
+          sudo apt-get -y install --no-install-recommends \
             libaudiofile-dev \
             libbz2-dev \
             libgcrypt-dev \
