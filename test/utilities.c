@@ -119,7 +119,7 @@ utilities_zx_string_to_utf8_special_chars( void )
   return TEST_PASS;
 }
 
-/* UDG characters (bytes 144–164) render as \a through \u */
+/* UDG characters (bytes 144–162) render as \a through \s */
 test_return_t
 utilities_zx_string_to_utf8_udg_char( void )
 {
@@ -143,12 +143,15 @@ utilities_zx_string_to_utf8_udg_char( void )
   return TEST_PASS;
 }
 
-/* Spectrum BASIC keyword tokens (bytes >= 165) expand to keyword text.
-   Byte 0xFB = 251 = 165 + 86 -> spectrum_tokens[86] = "RANDOMIZE" */
+/* Spectrum BASIC keyword tokens expand to keyword text.  128K-only
+   tokens 0xA3 and 0xA4 are SPECTRUM and PLAY; 0xF7 is RUN and 0xF9
+   is RANDOMIZE. */
 test_return_t
 utilities_zx_string_to_utf8_spectrum_token( void )
 {
-  static const libspectrum_byte src[] = { 0xfb };
+  static const libspectrum_byte src[] = {
+    0xa3, ' ', 0xa4, ' ', 0xf7, ' ', 0xf9
+  };
   char result[ sizeof( src ) * 9 + 1 ];
 
   if( libspectrum_zx_string_to_utf8( result, sizeof( result ), src,
@@ -158,9 +161,9 @@ utilities_zx_string_to_utf8_spectrum_token( void )
     return TEST_FAIL;
   }
 
-  if( strcmp( result, "RANDOMIZE" ) != 0 ) {
+  if( strcmp( result, "SPECTRUM PLAY RUN RANDOMIZE" ) != 0 ) {
     fprintf( stderr, "%s: utilities_zx_string_to_utf8_spectrum_token: "
-             "expected \"RANDOMIZE\", got \"%s\"\n", progname, result );
+             "expected \"SPECTRUM PLAY RUN RANDOMIZE\", got \"%s\"\n", progname, result );
     return TEST_FAIL;
   }
 
@@ -171,7 +174,7 @@ utilities_zx_string_to_utf8_spectrum_token( void )
 test_return_t
 utilities_zx_string_to_utf8_buffer_too_short_is_invalid( void )
 {
-  static const libspectrum_byte src[] = { 0xfb };
+  static const libspectrum_byte src[] = { 0xf9 };
   char result[ 9 ];
 
   if( libspectrum_zx_string_to_utf8( result, sizeof( result ), src,
@@ -240,12 +243,14 @@ utilities_check_version_future_major_returns_false( void )
   return TEST_PASS;
 }
 
-/* Graphics block tokens (bytes 128-143) render as four-character \XX sequences */
+/* Graphics block tokens (bytes 128-143) render as Unicode block elements. */
 test_return_t
 utilities_zx_string_to_utf8_graphics_token( void )
 {
-  /* 0x80 = 128 -> graphics_tokens[0] = "\\  " (space-space block) */
-  static const libspectrum_byte src[] = { 0x80 };
+  static const libspectrum_byte src[] = {
+    0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
+    0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f
+  };
   char result[ sizeof( src ) * 9 + 1 ];
 
   if( libspectrum_zx_string_to_utf8( result, sizeof( result ), src,
@@ -255,9 +260,13 @@ utilities_zx_string_to_utf8_graphics_token( void )
     return TEST_FAIL;
   }
 
-  if( strcmp( result, "\\  " ) != 0 ) {
+  if( strcmp( result,
+              " " "\xe2\x96\x9d" "\xe2\x96\x98" "\xe2\x96\x80"
+              "\xe2\x96\x97" "\xe2\x96\x90" "\xe2\x96\x9a" "\xe2\x96\x9c"
+              "\xe2\x96\x96" "\xe2\x96\x9e" "\xe2\x96\x8c" "\xe2\x96\x9b"
+              "\xe2\x96\x84" "\xe2\x96\x9f" "\xe2\x96\x99" "\xe2\x96\x88" ) != 0 ) {
     fprintf( stderr, "%s: utilities_zx_string_to_utf8_graphics_token: "
-             "expected \"\\\\ \", got \"%s\"\n", progname, result );
+             "unexpected result\n", progname );
     return TEST_FAIL;
   }
 

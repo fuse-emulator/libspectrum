@@ -227,8 +227,8 @@ Trailing spaces are stripped. Printable ASCII characters are copied as
 is except for `\\', which is escaped as `\\\\'. Spectrum-specific
 characters are converted to readable UTF-8 or textual equivalents:
 `^' becomes an up-arrow, '`' becomes a pound sign, character 127 becomes
-copyright, graphics characters become backslash-prefixed mosaics, user-
-defined graphics become `\\a' to `\\u', and keyword tokens expand to
+copyright, graphics characters become Unicode block elements, user-defined
+graphics become `\\a' to `\\s', and keyword tokens expand to
 their BASIC text. `buffer' must have room for at least nine times
 `src_length', plus one byte for the terminating NUL; the extra space allows
 for expanded BASIC keyword tokens. `LIBSPECTRUM_ERROR_INVALID' is returned
