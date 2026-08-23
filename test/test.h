@@ -28,6 +28,7 @@ test_return_t check_edges( const char *filename, test_edge_sequence_t *edges,
 
 test_return_t tape_with_unknown_block( void );
 test_return_t tzx_turbo_data_with_zero_pilot_pulses_and_zero_data( void );
+test_return_t tzx_pure_data_with_zero_used_bits( void );
 test_return_t writing_empty_tap_file( void );
 test_return_t invalid_compressed_file_1( void );
 test_return_t invalid_compressed_file_2( void );

@@ -99,6 +99,7 @@ EXTRA_DIST += \
 	test/loopend.tzx \
 	test/no-pilot-gdb.tzx \
 	test/plus3.z80 \
+	test/pure-data-usedbits-zero.tzx \
 	test/random.szx \
 	test/raw-data-block.tzx \
 	test/sp-2000.sna.gz \

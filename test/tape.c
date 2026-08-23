@@ -63,6 +63,14 @@ tzx_turbo_data_with_zero_pilot_pulses_and_zero_data( void )
   return TEST_PASS;
 }
 
+/* Test for bug #519: a one-byte TZX pure data block with zero used bits
+   must not produce endless tape edges. */
+test_return_t
+tzx_pure_data_with_zero_used_bits( void )
+{
+  return play_tape( STATIC_TEST_PATH( "pure-data-usedbits-zero.tzx" ) );
+}
+
 /* Test for bug #88: writing empty .tap file causes crash */
 test_return_t
 writing_empty_tap_file( void )

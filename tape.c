@@ -750,6 +750,12 @@ turbo_edge( libspectrum_tape_turbo_block *block,
   return LIBSPECTRUM_ERROR_NONE;
 }
 
+static size_t
+valid_used_bits( libspectrum_byte used_bits )
+{
+  return used_bits && used_bits <= 8 ? used_bits : 8;
+}
+
 static libspectrum_error
 turbo_next_bit( libspectrum_tape_turbo_block *block,
                 libspectrum_tape_turbo_block_state *state )
@@ -773,7 +779,8 @@ turbo_next_bit( libspectrum_tape_turbo_block *block,
     /* If we're looking at the last byte, take account of the fact it
        may have less than 8 bits in it */
     if( state->bytes_through_block == block->length-1 ) {
-      state->bits_through_byte = 8 - block->bits_in_last_byte;
+      state->bits_through_byte = 8 - valid_used_bits(
+        block->bits_in_last_byte );
     } else {
       state->bits_through_byte = 0;
     }
@@ -884,7 +891,8 @@ libspectrum_tape_pure_data_next_bit( libspectrum_tape_pure_data_block *block,
     /* If we're looking at the last byte, take account of the fact it
        may have less than 8 bits in it */
     if( state->bytes_through_block == block->length-1 ) {
-      state->bits_through_byte = 8 - block->bits_in_last_byte;
+      state->bits_through_byte = 8 - valid_used_bits(
+        block->bits_in_last_byte );
     } else {
       state->bits_through_byte = 0;
     }
@@ -949,7 +957,7 @@ libspectrum_tape_raw_data_next_bit( libspectrum_tape_raw_data_block *block,
   /* Step through the data until we find an edge */
   do {
     size_t bits_in_byte = (state->bytes_through_block == block->length - 1) ?
-        block->bits_in_last_byte : 8;
+        valid_used_bits( block->bits_in_last_byte ) : 8;
     length++;
     if( ++(state->bits_through_byte) == bits_in_byte ) {
       state->bits_through_byte = 0;
@@ -1204,7 +1212,8 @@ libspectrum_tape_data_block_next_bit( libspectrum_tape_data_block *block,
     /* If we're looking at the last byte, take account of the fact it
        may have less than 8 bits in it */
     if( state->bytes_through_block == block->length-1 ) {
-      state->bits_through_byte = 8 - block->bits_in_last_byte;
+      state->bits_through_byte = 8 - valid_used_bits(
+        block->bits_in_last_byte );
     } else {
       state->bits_through_byte = 0;
     }

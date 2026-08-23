@@ -10,6 +10,8 @@ test_description tests[] = {
   TEST_ENTRY( tape_with_unknown_block, "Tape with unknown block" ),
   TEST_ENTRY( tzx_turbo_data_with_zero_pilot_pulses_and_zero_data,
               "TZX turbo data with zero pilot pulses and zero data" ),
+  TEST_ENTRY( tzx_pure_data_with_zero_used_bits,
+              "TZX pure data with zero used bits" ),
   TEST_ENTRY( writing_empty_tap_file, "Writing empty .tap file" ),
   TEST_ENTRY( invalid_compressed_file_1, "Invalid compressed file 1" ),
   TEST_ENTRY( invalid_compressed_file_2, "Invalid compressed file 2" ),
