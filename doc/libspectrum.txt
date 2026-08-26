@@ -272,9 +272,8 @@ The `libspectrum_machine_capabilities' function:
 
 int libspectrum_machine_capabilities( libspectrum_machine type )
 
-will tell you which features (above and beyond those found on the base
-48K machine) a given `libspectrum_machine' has. It returns a bitwise OR
-of the following constants:
+will tell you which features a given `libspectrum_machine' has. It
+returns a bitwise OR of the following constants:
 
 LIBSPECTRUM_MACHINE_CAPABILITY_128_MEMORY
   This machine has 128K of memory accessible as on the 128K machine.
@@ -282,6 +281,10 @@ LIBSPECTRUM_MACHINE_CAPABILITY_128_MEMORY
 LIBSPECTRUM_MACHINE_CAPABILITY_AY
   This machine has an AY-3-8912 sound chip (as in the 128K and later
   machines).
+
+LIBSPECTRUM_MACHINE_CAPABILITY_BEEPER
+  This machine has a one-bit beeper, as found on the Spectrum 16K/48K
+  and Timex TC2048/TC2068/TS2068, but not the Spectrum 128K.
 
 LIBSPECTRUM_MACHINE_CAPABILITY_EVEN_M1
   Processor M1 cycles on this machine always start on even tstate

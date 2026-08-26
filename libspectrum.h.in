@@ -450,6 +450,8 @@ LIBSPECTRUM_MACHINE_CAPABILITY_PENT512_MEMORY; /* Pentagon 512 memory paging */
 extern LIBSPECTRUM_API const int
 LIBSPECTRUM_MACHINE_CAPABILITY_PENT1024_MEMORY;
 					      /* Pentagon 1024 memory paging */
+extern LIBSPECTRUM_API const int
+LIBSPECTRUM_MACHINE_CAPABILITY_BEEPER;                    /* Beeper sound */
 
 /* Get the capabilities of a machine */
 LIBSPECTRUM_API int libspectrum_machine_capabilities( libspectrum_machine type );

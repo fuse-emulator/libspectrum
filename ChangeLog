@@ -2,6 +2,9 @@
 
         * libspectrum 1.6.4 released.
 
+        * Add a beeper machine capability to the public API (Fredrick
+          Meunier).
+
         * Add libspectrum_tape_count() to the public tape API (Fredrick
           Meunier).
 
