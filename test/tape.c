@@ -328,6 +328,53 @@ csw_conversion( void )
   return TEST_PASS;
 }
 
+/* Test for bug #461: writing a recorded RLE pulse block as CSW crashed. */
+test_return_t
+csw_rle_pulse_conversion( void )
+{
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape_block *block =
+    libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE );
+  libspectrum_byte *data = libspectrum_new( libspectrum_byte, 1 );
+  libspectrum_byte *buffer = NULL;
+  size_t length = 0;
+  libspectrum_dword sample_rate;
+  test_return_t r = TEST_FAIL;
+
+  data[ 0 ] = 1;
+  libspectrum_tape_block_set_scale( block, 79 );
+  libspectrum_tape_block_set_data( block, data );
+  libspectrum_tape_block_set_data_length( block, 1 );
+  libspectrum_tape_append_block( tape, block );
+
+  if( libspectrum_tape_write( &buffer, &length, tape,
+                              LIBSPECTRUM_ID_TAPE_CSW ) ) {
+    fprintf( stderr, "%s: writing an RLE pulse block to a .csw file was not successful\n",
+             progname );
+    goto done;
+  }
+
+  if( length < 29 ) {
+    fprintf( stderr, "%s: CSW output was shorter than its header\n", progname );
+    goto done;
+  }
+
+  sample_rate = buffer[ 25 ] | ( buffer[ 26 ] << 8 ) |
+                ( buffer[ 27 ] << 16 ) | ( buffer[ 28 ] << 24 );
+  if( sample_rate != 3500000 / 79 ) {
+    fprintf( stderr, "%s: CSW sample rate was %lu, expected %lu\n", progname,
+             (unsigned long)sample_rate, (unsigned long)( 3500000 / 79 ) );
+    goto done;
+  }
+
+  r = TEST_PASS;
+
+done:
+  libspectrum_free( buffer );
+  libspectrum_tape_free( tape );
+  return r;
+}
+
 test_return_t
 tape_peek_next_block( void )
 {

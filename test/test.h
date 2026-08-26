@@ -58,6 +58,7 @@ test_return_t rzx_invalid_frame_data_error_does_not_free_repeat_frame_pointer( v
 test_return_t zero_tail_length_pzx_file( void );
 test_return_t no_pilot_pulse_gdb_tzx_file( void );
 test_return_t csw_conversion( void );
+test_return_t csw_rle_pulse_conversion( void );
 test_return_t write_szx_z80r_chunk( void );
 test_return_t write_szx_spcr_chunk( void );
 test_return_t write_szx_joy_chunk( void );

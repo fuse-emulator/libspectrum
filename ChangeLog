@@ -19,6 +19,9 @@
 
         * Disable libgcrypt secure memory (Sergio Baldoví).
 
+        * Fix writing recorded RLE pulse blocks as CSW files (fixes bug #461)
+          (Fredrick Meunier, thanks Sergio Baldoví).
+
         * Various minor bug fixes/improvements:
           * Optimise Z80 snapshot run-length compression and decompression
             (Fredrick Meunier).
