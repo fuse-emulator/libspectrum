@@ -105,7 +105,9 @@ Additionally, any files compressed with
 .IR gzip "(3)"
 or
 .IR zip "(3)"
-can be read and will be transparently decompressed.
+can be read and will be transparently decompressed. Expanded wrapper files
+are limited to 64 MiB; input which exceeds this limit is rejected with
+.BR LIBSPECTRUM_ERROR_LIMIT .
 .PP
 Full documentation for
 .I libspectrum

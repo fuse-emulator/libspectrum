@@ -47,7 +47,8 @@ skip_null_terminated_string( const libspectrum_byte **ptr, size_t *length,
 			     const char *name );
 static libspectrum_error
 zlib_inflate( const libspectrum_byte *gzptr, size_t gzlength,
-	      libspectrum_byte **outptr, size_t *outlength, int gzip_hack );
+	      libspectrum_byte **outptr, size_t *outlength, int gzip_hack,
+              size_t max_outlength );
 
 libspectrum_error 
 libspectrum_zlib_inflate( const libspectrum_byte *gzptr, size_t gzlength,
@@ -60,33 +61,47 @@ libspectrum_zlib_inflate( const libspectrum_byte *gzptr, size_t gzlength,
  * Returns:	error flag (libspectrum_error)
  */
 {
-  return zlib_inflate( gzptr, gzlength, outptr, outlength, 0 );
+  return zlib_inflate( gzptr, gzlength, outptr, outlength, 0, SIZE_MAX );
 }
 
 libspectrum_error
 libspectrum_gzip_inflate( const libspectrum_byte *gzptr, size_t gzlength,
-			  libspectrum_byte **outptr, size_t *outlength )
+			  libspectrum_byte **outptr, size_t *outlength,
+                          size_t max_outlength )
 {
   int error;
 
   error = skip_gzip_header( &gzptr, &gzlength ); if( error ) return error;
 
-  return zlib_inflate( gzptr, gzlength, outptr, outlength, 1 );
+  return zlib_inflate( gzptr, gzlength, outptr, outlength, 1,
+                       max_outlength );
 }
 
 libspectrum_error
 libspectrum_zip_inflate( const libspectrum_byte *zipptr, size_t ziplength,
-                         libspectrum_byte **outptr, size_t *outlength )
+                         libspectrum_byte **outptr, size_t *outlength,
+                         size_t max_outlength )
 {
-  return zlib_inflate( zipptr, ziplength, outptr, outlength, 1 );
+  return zlib_inflate( zipptr, ziplength, outptr, outlength, 1,
+                       max_outlength );
 }
 
 static libspectrum_error
 zlib_inflate( const libspectrum_byte *gzptr, size_t gzlength,
-	      libspectrum_byte **outptr, size_t *outlength, int gzip_hack )
+	      libspectrum_byte **outptr, size_t *outlength, int gzip_hack,
+              size_t max_outlength )
 {
   z_stream stream;
   int error;
+
+  *outptr = NULL;
+
+  if( *outlength > max_outlength ) {
+    *outlength = 0;
+    libspectrum_print_error( LIBSPECTRUM_ERROR_LIMIT,
+                             "inflated data exceeds size limit" );
+    return LIBSPECTRUM_ERROR_LIMIT;
+  }
 
   /* Use default memory management */
   stream.zalloc = Z_NULL; stream.zfree = Z_NULL; stream.opaque = Z_NULL;
@@ -145,10 +160,31 @@ zlib_inflate( const libspectrum_byte *gzptr, size_t gzlength,
     do {
 
       libspectrum_byte *ptr;
+      size_t increment, produced;
 
-      *outlength += 16384; stream.avail_out += 16384;
+      if( *outlength == max_outlength ) {
+        libspectrum_byte overflow;
+
+        stream.next_out = &overflow; stream.avail_out = 1;
+        error = inflate( &stream, 0 );
+        if( error == Z_STREAM_END && stream.avail_out == 1 ) {
+          stream.next_out = *outptr + *outlength;
+          break;
+        }
+
+        libspectrum_print_error( LIBSPECTRUM_ERROR_LIMIT,
+                                 "inflated data exceeds size limit" );
+        inflateEnd( &stream );
+        libspectrum_free( *outptr );
+        *outptr = NULL; *outlength = 0;
+        return LIBSPECTRUM_ERROR_LIMIT;
+      }
+
+      produced = stream.next_out ? stream.next_out - *outptr : 0;
+      increment = MIN( (size_t)16384, max_outlength - *outlength );
+      *outlength += increment; stream.avail_out = increment;
       ptr = libspectrum_renew( libspectrum_byte, *outptr, *outlength );
-      stream.next_out = ptr + ( stream.next_out - *outptr );
+      stream.next_out = ptr + produced;
       *outptr = ptr;
 
       error = inflate( &stream, 0 );

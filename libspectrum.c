@@ -727,7 +727,8 @@ libspectrum_uncompress_file( unsigned char **new_buffer, size_t *new_length,
     }
 
     error = libspectrum_bzip2_inflate( old_buffer, old_length,
-				       new_buffer, new_length );
+				       new_buffer, new_length,
+                                       LIBSPECTRUM_MAX_UNCOMPRESSED_FILE );
     if( error ) {
       if( new_filename ) libspectrum_free( *new_filename );
       return error;
@@ -758,7 +759,8 @@ libspectrum_uncompress_file( unsigned char **new_buffer, size_t *new_length,
     }
       
     error = libspectrum_gzip_inflate( old_buffer, old_length,
-				      new_buffer, new_length );
+				      new_buffer, new_length,
+                                      LIBSPECTRUM_MAX_UNCOMPRESSED_FILE );
     if( error ) {
       if( new_filename ) libspectrum_free( *new_filename );
       return error;
@@ -785,8 +787,10 @@ libspectrum_uncompress_file( unsigned char **new_buffer, size_t *new_length,
       (*new_filename)[ strlen( *new_filename ) - 4 ] = '\0';
     }
 
-    error = libspectrum_zip_blind_read( old_buffer, old_length,
-                                        new_buffer, new_length );
+    error = libspectrum_zip_blind_read(
+      old_buffer, old_length, new_buffer, new_length,
+      LIBSPECTRUM_MAX_UNCOMPRESSED_FILE
+    );
     if( error ) {
       if( new_filename ) libspectrum_free( *new_filename );
       return error;

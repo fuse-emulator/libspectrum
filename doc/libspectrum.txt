@@ -185,6 +185,8 @@ LIBSPECTRUM_ERROR_SLT		Ugly kludge used to indicate that a .z80
 LIBSPECTRUM_ERROR_INVALID	An invalid parameter was supplied to a
 				function
 LIBSPECTRUM_ERROR_MISSING_ZLIB	zlib support is unavailable or disabled
+LIBSPECTRUM_ERROR_LIMIT		A resource limit was exceeded while
+				processing the file
 LIBSPECTRUM_ERROR_LOGIC		An internal logic error has occurred;
 				should never be seen
 
@@ -347,7 +349,10 @@ libspectrum_identify_file_raw( libspectrum_id_t *type, const char *filename,
 
 `filename' should be the name of the file to be identified, or NULL if
 it is unknown. `buffer' and `length' are the contents and length of the
-file respectively.
+file respectively. The buffer may contain only the beginning of the file;
+64 bytes are sufficient for all currently defined signatures. This routine
+does not decompress compressed input, making it suitable for identifying a
+file before deciding whether its complete contents need to be read.
 
 The type of file will be returned in the `type' parameter, and can take
 the following values:
@@ -421,7 +426,11 @@ libspectrum_error
 libspectrum_identify_file( libspectrum_id_t *type, const char *filename,
 			   const unsigned char *buffer, size_t length )
 
-The parameters are the same as for `libspectrum_identify_file_raw'.
+The parameters are the same as for `libspectrum_identify_file_raw'. Unlike
+the raw function, this routine transparently decompresses compressed input
+before identifying it. Decompressed wrapper files are limited to 64 MiB;
+LIBSPECTRUM_ERROR_LIMIT is returned if the expanded data would exceed that
+limit.
 
 What in many cases may be more useful than the specific type of the
 file is whether the file is a snapshot, a tape image or whatever. This
@@ -459,7 +468,9 @@ libspectrum_identify_file_with_class(
 
 simply combines the calls to `libspectrum_identify_file' and
 `libspectrum_identify_class', returning the file type in `*type' and
-the file class in `*class'.
+the file class in `*class'. It therefore also transparently decompresses
+compressed input and applies the 64 MiB expanded-size limit described
+above.
 
 Buffer helpers
 --------------

@@ -374,6 +374,8 @@ test_description tests[] = {
   TEST_ENTRY( identify_file_raw_gz_magic_returns_compressed_gz, "libspectrum_identify_file_raw: GZ magic bytes → COMPRESSED_GZ (no decompression)" ),
   TEST_ENTRY( identify_file_raw_sna_filename_returns_snapshot_sna, "libspectrum_identify_file_raw: .sna filename → SNAPSHOT_SNA (extension-only match)" ),
   TEST_ENTRY( identify_file_raw_unknown_buffer_returns_unknown, "libspectrum_identify_file_raw: unrecognised data → ID_UNKNOWN" ),
+  TEST_ENTRY( identify_gzip_inflate_accepts_exact_limit, "gzip inflate: output exactly at limit succeeds" ),
+  TEST_ENTRY( identify_gzip_inflate_rejects_output_over_limit, "gzip inflate: output over limit is rejected and cleaned up" ),
   TEST_ENTRY( split_to_48k_pages_distributes_memory_to_correct_pages, "libspectrum_split_to_48k_pages: distributes each 16K region to pages 5, 2, and 0" ),
   TEST_ENTRY( split_to_48k_pages_fails_when_page_already_occupied, "libspectrum_split_to_48k_pages: returns LOGIC error when a page is already occupied" ),
   TEST_ENTRY( write_snap_page_writes_ram_data_to_buffer, "libspectrum_write_snap_page: writes RAM page data to buffer" ),

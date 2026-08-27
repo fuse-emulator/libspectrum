@@ -400,6 +400,8 @@ test_return_t identify_file_raw_tzx_magic_returns_tape_tzx( void );
 test_return_t identify_file_raw_gz_magic_returns_compressed_gz( void );
 test_return_t identify_file_raw_sna_filename_returns_snapshot_sna( void );
 test_return_t identify_file_raw_unknown_buffer_returns_unknown( void );
+test_return_t identify_gzip_inflate_accepts_exact_limit( void );
+test_return_t identify_gzip_inflate_rejects_output_over_limit( void );
 
 /* snap-read.c */
 test_return_t split_to_48k_pages_distributes_memory_to_correct_pages( void );

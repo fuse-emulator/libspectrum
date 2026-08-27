@@ -122,6 +122,12 @@ int libspectrum_write_dword( libspectrum_byte **buffer, libspectrum_dword d );
 
 /* (de)compression routines */
 
+/* Compressed wrapper files are always expanded in memory. 64 MiB allows over
+   three hours of a 44.1 kHz one-bit tape recording while keeping malformed
+   input well below the size of a hard disk image, which is handled directly
+   by the IDE code instead. */
+#define LIBSPECTRUM_MAX_UNCOMPRESSED_FILE ( (size_t)64 * 1024 * 1024 )
+
 libspectrum_error
 libspectrum_uncompress_file( unsigned char **new_buffer, size_t *new_length,
 			     char **new_filename, libspectrum_id_t type,
@@ -130,19 +136,23 @@ libspectrum_uncompress_file( unsigned char **new_buffer, size_t *new_length,
 
 libspectrum_error
 libspectrum_gzip_inflate( const libspectrum_byte *gzptr, size_t gzlength,
-			  libspectrum_byte **outptr, size_t *outlength );
+			  libspectrum_byte **outptr, size_t *outlength,
+                          size_t max_outlength );
 
 libspectrum_error
 libspectrum_bzip2_inflate( const libspectrum_byte *bzptr, size_t bzlength,
-			   libspectrum_byte **outptr, size_t *outlength );
+			   libspectrum_byte **outptr, size_t *outlength,
+                           size_t max_outlength );
 
 libspectrum_error
 libspectrum_zip_inflate( const libspectrum_byte *zipptr, size_t ziplength,
-			  libspectrum_byte **outptr, size_t *outlength );
+			  libspectrum_byte **outptr, size_t *outlength,
+                          size_t max_outlength );
 
 libspectrum_error
 libspectrum_zip_blind_read( const libspectrum_byte *zipptr, size_t ziplength,
-                            libspectrum_byte **outptr, size_t *outlength );
+                            libspectrum_byte **outptr, size_t *outlength,
+                            size_t max_outlength );
 
 /* The TZX file signature */
 
