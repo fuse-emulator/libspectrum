@@ -829,6 +829,12 @@ typedef struct libspectrum_rzx libspectrum_rzx;
 LIBSPECTRUM_API libspectrum_rzx* libspectrum_rzx_alloc( void );
 LIBSPECTRUM_API libspectrum_error libspectrum_rzx_free( libspectrum_rzx *rzx );
 
+/* Return the creator metadata associated with rzx, or NULL. The returned
+   object is owned by rzx and remains valid until rzx is modified or freed.
+   The caller must not free it. */
+LIBSPECTRUM_API const libspectrum_creator*
+libspectrum_rzx_creator( const libspectrum_rzx *rzx );
+
 LIBSPECTRUM_API void
 libspectrum_rzx_start_input( libspectrum_rzx *rzx, libspectrum_dword tstates );
 LIBSPECTRUM_API libspectrum_error

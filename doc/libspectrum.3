@@ -45,6 +45,8 @@ libspectrum \(em Sinclair ZX Spectrum support library
 .BI "libspectrum_error libspectrum_tape_read( libspectrum_tape *tape, const libspectrum_byte *buffer, size_t length, libspectrum_id_t type, const char *filename );"
 .br
 .BI "libspectrum_error libspectrum_rzx_read( libspectrum_rzx *rzx, const libspectrum_byte *buffer, size_t length );"
+.br
+.BI "const libspectrum_creator *libspectrum_rzx_creator( const libspectrum_rzx *rzx );"
 .PP
 Additional public helper APIs are documented in
 .RI ` libspectrum.txt ',
@@ -61,7 +63,8 @@ the growable buffer API
 .BR libspectrum_buffer_alloc ()
 through
 .BR libspectrum_buffer_append (),
-RZX signature inspection helpers such as
+RZX metadata inspection helpers such as
+.BR libspectrum_rzx_creator (),
 .BR libspectrum_rzx_get_keyid ()
 and
 .BR libspectrum_rzx_get_signature (),

@@ -242,6 +242,8 @@ test_return_t rzx_rollback_on_rzx_with_no_snap_returns_error( void );
 test_return_t rzx_rollback_to_returns_nth_snap( void );
 test_return_t rzx_start_playback_returns_invalid_with_no_input_block( void );
 test_return_t rzx_playback_delivers_stored_in_bytes( void );
+test_return_t rzx_read_retains_first_creator_block( void );
+test_return_t rzx_read_rejects_short_creator_block( void );
 test_return_t rzx_playback_frame_returns_corrupt_on_in_count_mismatch( void );
 test_return_t machine_capabilities_16k_and_48k_have_no_capabilities( void );
 test_return_t machine_capabilities_48k_ntsc_has_ntsc_only( void );

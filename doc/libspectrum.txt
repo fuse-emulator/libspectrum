@@ -1551,6 +1551,23 @@ libspectrum_error libspectrum_rzx_free( libspectrum_rzx *rzx )
 Free the memory used by an input recording object as allocated by
 `libspectrum_rzx_alloc'.
 
+const libspectrum_creator*
+libspectrum_rzx_creator( const libspectrum_rzx *rzx )
+
+Return the creator metadata read from the first valid creator block in
+`rzx', or NULL if the recording does not contain one. Later creator
+blocks are ignored.
+
+The returned object is owned by `rzx' and remains valid until `rzx' is
+modified or freed. The caller must not modify or free it. The program
+name is always NUL-terminated, even when the fixed-width field in the
+RZX file is not. Custom data is retained as arbitrary binary data and
+its length is available through `libspectrum_creator_custom_length'.
+
+The creator identifies the program which last created or rewrote the
+RZX file; it does not necessarily identify the program which originally
+recorded the input.
+
 void
 libspectrum_rzx_start_input( libspectrum_rzx *rzx, libspectrum_dword tstates )
 
@@ -1647,9 +1664,10 @@ libspectrum_rzx_read( libspectrum_rzx *rzx, const libspectrum_byte *buffer,
 
 Given a .rzx file of `length' bytes starting at `buffer', extract the
 input recording data into `rzx'. Embedded snapshots are retained within
-the recording and can be inspected via the RZX iterator functions.
-Files compressed with bzip2 or gzip will be automatically and
-transparently decompressed.
+the recording and can be inspected via the RZX iterator functions. The
+first valid creator block is retained and can be inspected with
+`libspectrum_rzx_creator'. Files compressed with bzip2 or gzip will be
+automatically and transparently decompressed.
 
 libspectrum_error
 libspectrum_rzx_write( libspectrum_byte **buffer, size_t *length,
