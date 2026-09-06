@@ -140,13 +140,17 @@ get_joystick_type_v3( libspectrum_snap *snap,
 static libspectrum_error
 read_blocks( const libspectrum_byte *buffer, size_t buffer_length,
 	     libspectrum_snap *snap, int version, int compressed );
+static int
+spectaculator_61_scorpion_pages( const libspectrum_byte *buffer,
+                                 size_t buffer_length,
+                                 libspectrum_snap *snap, int version );
 static libspectrum_error
 read_slt( libspectrum_snap *snap, const libspectrum_byte **next_block,
 	  const libspectrum_byte *end );
 static libspectrum_error
 read_block( const libspectrum_byte *buffer, libspectrum_snap *snap,
 	    const libspectrum_byte **next_block, const libspectrum_byte *end,
-	    int version, int compressed );
+	    int version, int compressed, int page_offset );
 static libspectrum_error
 read_v1_block( const libspectrum_byte *buffer, int is_compressed,
 	       libspectrum_byte **uncompressed,
@@ -676,15 +680,23 @@ read_blocks( const libspectrum_byte *buffer, size_t buffer_length,
 	     libspectrum_snap *snap, int version, int compressed )
 {
   const libspectrum_byte *end, *next_block;
+  int page_offset;
 
   end = buffer + buffer_length; next_block = buffer;
+
+  /* Spectaculator 6.1 wrote Scorpion RAM banks as pages 0-15 rather than
+     the conventional Z80 page numbers 3-18.  Recognise only its complete
+     sixteen-page layout so that a stray page 0 in a corrupt snapshot does
+     not change the interpretation of all the other pages. */
+  page_offset = spectaculator_61_scorpion_pages( buffer, buffer_length,
+                                                 snap, version ) ? 3 : 0;
 
   while( next_block < end ) {
 
     libspectrum_error error;
 
     error = read_block( next_block, snap, &next_block, end, version,
-			compressed );
+			compressed, page_offset );
 
     /* If it looks like some .slt data, try and parse that. That should
        then be the end of the file */
@@ -709,6 +721,44 @@ read_blocks( const libspectrum_byte *buffer, size_t buffer_length,
   }
 
   return LIBSPECTRUM_ERROR_NONE;
+}
+
+static int
+spectaculator_61_scorpion_pages( const libspectrum_byte *buffer,
+                                 size_t buffer_length,
+                                 libspectrum_snap *snap, int version )
+{
+  const libspectrum_byte *ptr, *end;
+  unsigned int pages = 0;
+  int count = 0;
+
+  if( version < 2 ||
+      libspectrum_snap_machine( snap ) != LIBSPECTRUM_MACHINE_SCORP )
+    return 0;
+
+  ptr = buffer; end = buffer + buffer_length;
+
+  while( ptr < end ) {
+    size_t length;
+    int page;
+
+    if( end - ptr < 3 ) return 0;
+
+    length = ptr[0] + ptr[1] * 0x100;
+    page = ptr[2];
+
+    if( page > 15 || ( pages & ( 1U << page ) ) ) return 0;
+
+    pages |= 1U << page;
+    count++;
+
+    if( length == 0xffff ) length = 0x4000;
+    if( end - ptr - 3 < (ptrdiff_t)length ) return 0;
+
+    ptr += 3 + length;
+  }
+
+  return count == 16 && pages == 0xffffU;
 }
 
 static libspectrum_error
@@ -857,7 +907,7 @@ read_slt( libspectrum_snap *snap, const libspectrum_byte **next_block,
 static libspectrum_error
 read_block( const libspectrum_byte *buffer, libspectrum_snap *snap,
 	    const libspectrum_byte **next_block, const libspectrum_byte *end,
-	    int version, int compressed )
+	    int version, int compressed, int page_offset )
 {
   libspectrum_error error;
   libspectrum_byte *uncompressed;
@@ -883,6 +933,8 @@ read_block( const libspectrum_byte *buffer, libspectrum_snap *snap,
     error = read_v2_block( buffer, &uncompressed, &length, &page, next_block,
 			   end );
     if( error != LIBSPECTRUM_ERROR_NONE ) return error;
+
+    page += page_offset;
 
     if( page <= 0 || page > 18 ) {
       libspectrum_print_error( LIBSPECTRUM_ERROR_UNKNOWN,

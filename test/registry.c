@@ -42,6 +42,8 @@ test_description tests[] = {
   TEST_ENTRY( complete_tzx_timings, "Complete TZX timings" ),
   TEST_ENTRY( writing_sna_file, "Writing SNA file" ),
   TEST_ENTRY( writing_plus_3_z80_file, "Writing +3 .Z80 file" ),
+  TEST_ENTRY( reading_spectaculator_61_scorpion_z80_pages,
+              "Reading Spectaculator 6.1 Scorpion Z80 pages" ),
   TEST_ENTRY( reading_old_szx_file, "Reading old SZX file" ),
   TEST_ENTRY( rzx_invalid_frame_data_error_does_not_free_repeat_frame_pointer,
               "RZX frame data error does not free repeat-frame pointer" ),
