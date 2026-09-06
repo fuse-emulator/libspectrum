@@ -228,6 +228,8 @@ test_description tests[] = {
               "RZX start_playback returns INVALID when no input block exists" ),
   TEST_ENTRY( rzx_playback_delivers_stored_in_bytes,
               "RZX playback delivers stored IN bytes and finishes after last frame" ),
+  TEST_ENTRY( rzx_playback_input_cursor_management,
+              "RZX playback input cursor inspection and discard" ),
   TEST_ENTRY( rzx_read_retains_first_creator_block,
               "RZX read retains first creator block" ),
   TEST_ENTRY( rzx_read_rejects_short_creator_block,

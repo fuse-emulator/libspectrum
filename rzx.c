@@ -588,6 +588,28 @@ libspectrum_rzx_playback_frame( libspectrum_rzx *rzx, int *finished,
   return LIBSPECTRUM_ERROR_NONE;
 }
 
+size_t
+libspectrum_rzx_playback_inputs_remaining( const libspectrum_rzx *rzx )
+{
+  if( !rzx->current_block || !rzx->current_input || !rzx->data_frame ||
+      rzx->current_frame >= rzx->current_input->count ||
+      rzx->in_count >= rzx->data_frame->count )
+    return 0;
+
+  return rzx->data_frame->count - rzx->in_count;
+}
+
+libspectrum_error
+libspectrum_rzx_playback_discard_inputs( libspectrum_rzx *rzx )
+{
+  if( !rzx->current_block || !rzx->current_input || !rzx->data_frame ||
+      rzx->current_frame >= rzx->current_input->count )
+    return LIBSPECTRUM_ERROR_INVALID;
+
+  rzx->in_count = rzx->data_frame->count;
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
 libspectrum_error
 libspectrum_rzx_playback( libspectrum_rzx *rzx, libspectrum_byte *byte )
 {

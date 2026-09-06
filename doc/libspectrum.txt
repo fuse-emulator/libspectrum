@@ -1626,6 +1626,20 @@ otherwise `*snap' will be NULL.
 If the correct number of bytes were not read from `rzx' during the
 frame via `libspectrum_rzx_playback', an error will be given.
 
+size_t
+libspectrum_rzx_playback_inputs_remaining( const libspectrum_rzx *rzx )
+
+Return the number of input bytes not yet read from the current playback
+frame. Zero is returned if there is no active playback frame or playback
+has finished.
+
+libspectrum_error
+libspectrum_rzx_playback_discard_inputs( libspectrum_rzx *rzx )
+
+Discard any unread input bytes in the current playback frame without
+moving to the next frame. LIBSPECTRUM_ERROR_INVALID is returned if there
+is no active playback frame.
+
 libspectrum_error libspectrum_rzx_playback( libspectrum_rzx *rzx,
                                             libspectrum_byte *byte )
 

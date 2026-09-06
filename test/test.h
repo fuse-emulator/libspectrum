@@ -242,6 +242,7 @@ test_return_t rzx_rollback_on_rzx_with_no_snap_returns_error( void );
 test_return_t rzx_rollback_to_returns_nth_snap( void );
 test_return_t rzx_start_playback_returns_invalid_with_no_input_block( void );
 test_return_t rzx_playback_delivers_stored_in_bytes( void );
+test_return_t rzx_playback_input_cursor_management( void );
 test_return_t rzx_read_retains_first_creator_block( void );
 test_return_t rzx_read_rejects_short_creator_block( void );
 test_return_t rzx_playback_frame_returns_corrupt_on_in_count_mismatch( void );

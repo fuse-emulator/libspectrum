@@ -1151,6 +1151,88 @@ done:
 }
 
 test_return_t
+rzx_playback_input_cursor_management( void )
+{
+  libspectrum_rzx *rzx = libspectrum_rzx_alloc();
+  libspectrum_snap *snap = NULL;
+  libspectrum_byte in_bytes[3] = { 0x11, 0x22, 0x33 };
+  libspectrum_byte got;
+  int finished = 0;
+  test_return_t r = TEST_FAIL;
+
+  if( libspectrum_rzx_playback_inputs_remaining( rzx ) != 0 ||
+      libspectrum_rzx_playback_discard_inputs( rzx ) !=
+        LIBSPECTRUM_ERROR_INVALID ) {
+    fprintf( stderr, "%s: inactive playback cursor state is incorrect\n",
+             progname );
+    goto done;
+  }
+
+  libspectrum_rzx_start_input( rzx, 0 );
+  if( libspectrum_rzx_store_frame( rzx, 10, 3, in_bytes ) ||
+      libspectrum_rzx_store_frame( rzx, 20, 3, in_bytes ) ||
+      libspectrum_rzx_store_frame( rzx, 30, 0, NULL ) ) {
+    fprintf( stderr, "%s: failed to store playback cursor test frames\n",
+             progname );
+    goto done;
+  }
+  libspectrum_rzx_stop_input( rzx );
+
+  if( libspectrum_rzx_start_playback( rzx, 0, &snap ) ||
+      libspectrum_rzx_playback_inputs_remaining( rzx ) != 3 ) {
+    fprintf( stderr, "%s: initial remaining input count is incorrect\n",
+             progname );
+    goto done;
+  }
+
+  if( libspectrum_rzx_playback( rzx, &got ) || got != 0x11 ||
+      libspectrum_rzx_playback_inputs_remaining( rzx ) != 2 ) {
+    fprintf( stderr, "%s: remaining count after input is incorrect\n",
+             progname );
+    goto done;
+  }
+
+  if( libspectrum_rzx_playback_discard_inputs( rzx ) ||
+      libspectrum_rzx_playback_inputs_remaining( rzx ) != 0 ||
+      libspectrum_rzx_playback_frame( rzx, &finished, &snap ) || finished ) {
+    fprintf( stderr, "%s: failed to discard inputs and advance frame\n",
+             progname );
+    goto done;
+  }
+
+  /* The second frame repeats the first frame's effective input data. */
+  if( libspectrum_rzx_playback_inputs_remaining( rzx ) != 3 ||
+      libspectrum_rzx_playback_discard_inputs( rzx ) ||
+      libspectrum_rzx_playback_frame( rzx, &finished, &snap ) || finished ) {
+    fprintf( stderr, "%s: repeated frame cursor state is incorrect\n",
+             progname );
+    goto done;
+  }
+
+  if( libspectrum_rzx_playback_inputs_remaining( rzx ) != 0 ||
+      libspectrum_rzx_playback_discard_inputs( rzx ) ||
+      libspectrum_rzx_playback_frame( rzx, &finished, &snap ) || !finished ) {
+    fprintf( stderr, "%s: zero-input or final frame state is incorrect\n",
+             progname );
+    goto done;
+  }
+
+  if( libspectrum_rzx_playback_inputs_remaining( rzx ) != 0 ||
+      libspectrum_rzx_playback_discard_inputs( rzx ) !=
+        LIBSPECTRUM_ERROR_INVALID ) {
+    fprintf( stderr, "%s: finished playback cursor state is incorrect\n",
+             progname );
+    goto done;
+  }
+
+  r = TEST_PASS;
+
+ done:
+  libspectrum_rzx_free( rzx );
+  return r;
+}
+
+test_return_t
 rzx_read_retains_first_creator_block( void )
 {
   static const libspectrum_byte buffer[] = {
