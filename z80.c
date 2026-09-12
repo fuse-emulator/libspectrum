@@ -943,13 +943,26 @@ read_block( const libspectrum_byte *buffer, libspectrum_snap *snap,
       return LIBSPECTRUM_ERROR_UNKNOWN;
     }
 
-    /* If it is an Interface 1 ROM page put it in the appropriate structure */
+    /* Z80 memory pages are always 16K. For Interface 1 page 1, interpret a
+       zero-filled upper half as padding for an 8K ROM; otherwise retain the
+       complete 16K ROM. */
     if( page == 1 && libspectrum_snap_interface1_active( snap ) ) {
-      libspectrum_byte *chunk = libspectrum_new( libspectrum_byte, 0x4000 );
-      memcpy( chunk, uncompressed, 0x4000 );
+      size_t rom_length = 0x2000;
+      libspectrum_byte *chunk;
+      size_t i;
+
+      for( i = 0x2000; i < 0x4000; i++ ) {
+        if( uncompressed[i] ) {
+          rom_length = 0x4000;
+          break;
+        }
+      }
+
+      chunk = libspectrum_new( libspectrum_byte, rom_length );
+      memcpy( chunk, uncompressed, rom_length );
       libspectrum_snap_set_interface1_custom_rom( snap, 1 );
       libspectrum_snap_set_interface1_rom( snap, 0, chunk );
-      libspectrum_snap_set_interface1_rom_length( snap, 0, 0x4000 );
+      libspectrum_snap_set_interface1_rom_length( snap, 0, rom_length );
       libspectrum_free( uncompressed );
       return LIBSPECTRUM_ERROR_NONE;
     }

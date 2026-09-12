@@ -238,6 +238,8 @@ test_description tests[] = {
               "RZX playback_frame returns CORRUPT on IN count mismatch" ),
   TEST_ENTRY( snap_kempston_mouse_active_getter_setter, "Snap kempston_mouse_active getter/setter" ),
   TEST_ENTRY( snap_interface1_custom_rom_rom_pointer_and_rom_length_getter_setter, "Snap interface1 custom_rom flag, ROM pointer, and ROM length getter/setter" ),
+  TEST_ENTRY( z80_interface1_8k_rom_roundtrip, "Z80 snapshot preserves an 8K Interface 1 ROM" ),
+  TEST_ENTRY( z80_interface1_16k_rom_roundtrip, "Z80 snapshot preserves a 16K Interface 1 ROM" ),
   TEST_ENTRY( snap_melodik_active_getter_setter, "Snap melodik_active getter/setter" ),
   TEST_ENTRY( snap_simpleide_active_getter_setter, "Snap simpleide_active getter/setter" ),
   TEST_ENTRY( snap_issue2_getter_setter, "Snap issue2 keyboard mode getter/setter" ),

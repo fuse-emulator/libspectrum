@@ -153,6 +153,8 @@ test_return_t creator_competition_code_and_custom_data_getter_setter( void );
 test_return_t snap_main_z80_register_getter_setter_a_f_bc_de_hl_alternates( void );
 test_return_t snap_index_and_special_register_getter_setter_ix_iy_i_r_sp_pc( void );
 test_return_t snap_z80_status_getter_setter_iff1_iff2_im_tstates_halted( void );
+test_return_t z80_interface1_8k_rom_roundtrip( void );
+test_return_t z80_interface1_16k_rom_roundtrip( void );
 test_return_t microdrive_alloc_free_and_write_protect_getter_setter( void );
 test_return_t microdrive_cartridge_len_and_data_getter_setter( void );
 test_return_t microdrive_mdr_write_mdr_read_roundtrip( void );
