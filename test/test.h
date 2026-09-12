@@ -3,6 +3,64 @@
 
 #include "libspectrum.h"
 
+#define TEST_TAPE_FLAGS_NO_EDGE (1 << 3)
+#define TEST_TAPE_FLAGS_LEVEL_LOW (1 << 4)
+#define TEST_TAPE_FLAGS_LEVEL_HIGH (1 << 5)
+static inline libspectrum_error
+test_tape_get_next_edge( libspectrum_dword *tstates, int *flags,
+                         libspectrum_tape *tape )
+{
+  libspectrum_tape_edge edge;
+  libspectrum_error error = libspectrum_tape_get_next_edge( &edge, tape );
+  if( error ) return error;
+  *tstates = edge.tstates; *flags = edge.flags;
+  if( edge.transition == LIBSPECTRUM_TAPE_TRANSITION_NONE && !edge.tstates )
+    *flags |= TEST_TAPE_FLAGS_NO_EDGE;
+  else if( edge.transition == LIBSPECTRUM_TAPE_TRANSITION_FORCE_LOW )
+    *flags |= TEST_TAPE_FLAGS_LEVEL_LOW;
+  else if( edge.transition == LIBSPECTRUM_TAPE_TRANSITION_FORCE_HIGH )
+    *flags |= TEST_TAPE_FLAGS_LEVEL_HIGH;
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
+static inline libspectrum_tape_cursor *
+test_tape_cursor_capture( libspectrum_tape *tape, int ignored )
+{
+  (void)ignored; return libspectrum_tape_cursor_capture( tape );
+}
+static inline libspectrum_error
+test_tape_cursor_get_next_edge( libspectrum_dword *tstates, int *flags,
+                                libspectrum_tape_cursor *cursor )
+{
+  libspectrum_tape_edge edge;
+  libspectrum_error error = libspectrum_tape_cursor_get_next_edge( &edge, cursor );
+  if( error ) return error;
+  *tstates = edge.tstates; *flags = edge.flags;
+  if( edge.transition == LIBSPECTRUM_TAPE_TRANSITION_NONE && !edge.tstates ) *flags |= TEST_TAPE_FLAGS_NO_EDGE;
+  else if( edge.transition == LIBSPECTRUM_TAPE_TRANSITION_FORCE_LOW ) *flags |= TEST_TAPE_FLAGS_LEVEL_LOW;
+  else if( edge.transition == LIBSPECTRUM_TAPE_TRANSITION_FORCE_HIGH ) *flags |= TEST_TAPE_FLAGS_LEVEL_HIGH;
+  return LIBSPECTRUM_ERROR_NONE;
+}
+static inline libspectrum_error
+test_tape_cursor_signal_level( int *level,
+                               const libspectrum_tape_cursor *cursor )
+{
+  libspectrum_tape_signal_level signal;
+  libspectrum_error error = libspectrum_tape_cursor_signal_level( &signal, cursor );
+  if( !error ) *level = signal;
+  return error;
+}
+static inline libspectrum_error
+test_tape_cursor_apply( libspectrum_tape *tape, int *level,
+                        const libspectrum_tape_cursor *cursor )
+{
+  libspectrum_tape_signal_level signal;
+  libspectrum_error error = libspectrum_tape_cursor_apply( tape, cursor );
+  if( !error ) error = libspectrum_tape_signal_level_get( &signal, tape );
+  if( !error ) *level = signal;
+  return error;
+}
+
 extern const char *progname;
 
 typedef enum test_return_t {
@@ -57,6 +115,8 @@ test_return_t reading_spectaculator_61_scorpion_z80_pages( void );
 test_return_t reading_old_szx_file( void );
 test_return_t rzx_invalid_frame_data_error_does_not_free_repeat_frame_pointer( void );
 test_return_t zero_tail_length_pzx_file( void );
+test_return_t tape_absolute_edge_levels_follow_tzx_and_pzx( void );
+test_return_t tape_signal_level_lifecycle_invariants( void );
 test_return_t no_pilot_pulse_gdb_tzx_file( void );
 test_return_t csw_conversion( void );
 test_return_t csw_rle_pulse_conversion( void );
@@ -332,7 +392,6 @@ test_return_t tape_current_block_returns_null_on_empty_tape( void );
 test_return_t tape_current_block_returns_first_block_after_init( void );
 test_return_t tape_block_set_type_changes_block_type( void );
 test_return_t tape_state_on_fresh_tape_returns_invalid( void );
-test_return_t tape_set_state_and_get_state_round_trip( void );
 test_return_t tape_block_type_returns_type_set_at_alloc( void );
 test_return_t tape_block_alloc_several_types( void );
 
@@ -424,6 +483,10 @@ test_return_t tape_block_length_metadata_block_returns_zero( void );
 
 /* tape-iterator.c: tape_state and tape_set_state */
 test_return_t tape_state_returns_pilot_for_new_rom_block( void );
-test_return_t tape_set_state_updates_state_of_rom_block( void );
+test_return_t tape_cursor_advances_applies_and_invalidates( void );
+test_return_t tape_cursor_detects_block_mutations( void );
+test_return_t tape_rejects_duplicate_block_ownership( void );
+test_return_t tape_cursor_tracks_partial_and_full_rom_blocks( void );
+test_return_t tape_cursor_processes_jump_and_loop_blocks( void );
 
 #endif

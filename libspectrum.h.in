@@ -638,6 +638,7 @@ typedef enum libspectrum_tape_type {
 
 typedef struct libspectrum_tape_block libspectrum_tape_block;
 typedef struct libspectrum_tape_block_state libspectrum_tape_block_state;
+typedef struct libspectrum_tape_cursor libspectrum_tape_cursor;
 typedef struct libspectrum_tape_generalised_data_symbol_table libspectrum_tape_generalised_data_symbol_table;
 
 /* Something to step through all the blocks in a tape */
@@ -647,9 +648,6 @@ typedef struct _GSList *libspectrum_tape_iterator;
 extern LIBSPECTRUM_API const int LIBSPECTRUM_TAPE_FLAGS_BLOCK;  /* End of block */
 extern LIBSPECTRUM_API const int LIBSPECTRUM_TAPE_FLAGS_STOP;	  /* Stop tape */
 extern LIBSPECTRUM_API const int LIBSPECTRUM_TAPE_FLAGS_STOP48; /* Stop tape if in 48K mode */
-extern LIBSPECTRUM_API const int LIBSPECTRUM_TAPE_FLAGS_NO_EDGE; /* Edge isn't really an edge */
-extern LIBSPECTRUM_API const int LIBSPECTRUM_TAPE_FLAGS_LEVEL_LOW; /* Set level low */
-extern LIBSPECTRUM_API const int LIBSPECTRUM_TAPE_FLAGS_LEVEL_HIGH; /* Set level high */
 extern LIBSPECTRUM_API const int LIBSPECTRUM_TAPE_FLAGS_LENGTH_SHORT;/* Short edge;
                                                 used for loader acceleration */
 extern LIBSPECTRUM_API const int LIBSPECTRUM_TAPE_FLAGS_LENGTH_LONG; /* Long edge;
@@ -720,9 +718,54 @@ libspectrum_tape_write( libspectrum_byte **buffer, size_t *length,
 /* Does this tape structure actually contain a tape? */
 LIBSPECTRUM_API int libspectrum_tape_present( const libspectrum_tape *tape );
 
+typedef enum libspectrum_tape_signal_level {
+  LIBSPECTRUM_TAPE_SIGNAL_LOW = 0,
+  LIBSPECTRUM_TAPE_SIGNAL_HIGH = 1
+} libspectrum_tape_signal_level;
+
+typedef enum libspectrum_tape_transition {
+  LIBSPECTRUM_TAPE_TRANSITION_NONE = 0,
+  LIBSPECTRUM_TAPE_TRANSITION_TOGGLE,
+  LIBSPECTRUM_TAPE_TRANSITION_FORCE_LOW,
+  LIBSPECTRUM_TAPE_TRANSITION_FORCE_HIGH
+} libspectrum_tape_transition;
+
+typedef struct libspectrum_tape_edge {
+  libspectrum_dword tstates;
+  libspectrum_tape_signal_level level;
+  libspectrum_tape_transition transition;
+  int flags;
+} libspectrum_tape_edge;
+
 LIBSPECTRUM_API libspectrum_error
-libspectrum_tape_get_next_edge( libspectrum_dword *tstates, int *flags,
-	                        libspectrum_tape *tape );
+libspectrum_tape_get_next_edge( libspectrum_tape_edge *edge,
+                                libspectrum_tape *tape );
+LIBSPECTRUM_API libspectrum_error
+libspectrum_tape_signal_level_get( libspectrum_tape_signal_level *level,
+                                   const libspectrum_tape *tape );
+
+/* Independently inspect and restore a tape playback position */
+LIBSPECTRUM_API libspectrum_tape_cursor *
+libspectrum_tape_cursor_capture( libspectrum_tape *tape );
+LIBSPECTRUM_API libspectrum_tape_cursor *
+libspectrum_tape_cursor_clone( const libspectrum_tape_cursor *cursor );
+LIBSPECTRUM_API libspectrum_error
+libspectrum_tape_cursor_free( libspectrum_tape_cursor *cursor );
+LIBSPECTRUM_API libspectrum_error
+libspectrum_tape_cursor_get_next_edge( libspectrum_tape_edge *edge,
+                                       libspectrum_tape_cursor *cursor );
+LIBSPECTRUM_API libspectrum_error
+libspectrum_tape_cursor_apply( libspectrum_tape *tape,
+                               const libspectrum_tape_cursor *cursor );
+LIBSPECTRUM_API libspectrum_error
+libspectrum_tape_cursor_state( libspectrum_tape_state_type *state,
+                               const libspectrum_tape_cursor *cursor );
+LIBSPECTRUM_API libspectrum_error
+libspectrum_tape_cursor_signal_level( libspectrum_tape_signal_level *level,
+                                      const libspectrum_tape_cursor *cursor );
+LIBSPECTRUM_API libspectrum_error
+libspectrum_tape_cursor_position( int *n,
+                                  const libspectrum_tape_cursor *cursor );
 
 /* Get the current block from the tape */
 LIBSPECTRUM_API libspectrum_tape_block *
@@ -731,11 +774,6 @@ libspectrum_tape_current_block( libspectrum_tape *tape );
 /* Get the state of the active block on the tape */
 LIBSPECTRUM_API libspectrum_tape_state_type
 libspectrum_tape_state( libspectrum_tape *tape );
-
-/* Set the state of the active block on the tape */
-LIBSPECTRUM_API libspectrum_error
-libspectrum_tape_set_state( libspectrum_tape *tape,
-                            libspectrum_tape_state_type state );
 
 /* Peek at the next block on the tape */
 LIBSPECTRUM_API libspectrum_tape_block *
@@ -765,7 +803,7 @@ LIBSPECTRUM_API libspectrum_error
 libspectrum_tape_nth_block( libspectrum_tape *tape, int n );
 
 /* Append a block to the current tape */
-LIBSPECTRUM_API void
+LIBSPECTRUM_API libspectrum_error
 libspectrum_tape_append_block( libspectrum_tape *tape,
 			       libspectrum_tape_block *block );
 

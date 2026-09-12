@@ -294,6 +294,11 @@ libspectrum_tape_block_internal_init(
                                 libspectrum_tape_block_state *iterator,
                                 libspectrum_tape *tape );
 
+/* Legacy polarity flags used only by internal tape encoders/decoders. */
+extern const int LIBSPECTRUM_TAPE_FLAGS_NO_EDGE;
+extern const int LIBSPECTRUM_TAPE_FLAGS_LEVEL_LOW;
+extern const int LIBSPECTRUM_TAPE_FLAGS_LEVEL_HIGH;
+
 libspectrum_error
 libspectrum_tape_get_next_edge_internal( libspectrum_dword *tstates, int *flags,
                                          libspectrum_tape *tape,

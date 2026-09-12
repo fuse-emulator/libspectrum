@@ -1094,34 +1094,100 @@ into `*buffer'. On entry, '*buffer' is assumed to be allocated
 '*length' bytes, and will grow if necessary; if '*length' is zero,
 '*buffer' can be uninitialised on entry.
 
-libspectrum_error libspectrum_tape_get_next_edge( libspectrum_dword *tstates,
-						  int *flags,
-						  libspectrum_tape *tape )
+libspectrum_error
+libspectrum_tape_get_next_edge( libspectrum_tape_edge *edge,
+                                libspectrum_tape *tape )
 
-This is the main workhorse function of the tape routines and will
-return in `tstates' the number of tstates until the next edge should
-occur from `tape'. `flags' will be set to the bitwise or of the
-following:
+Advance playback and return one event. `edge->tstates' is the duration for
+which the event's absolute post-transition `edge->level' is held.
+`edge->transition' is NONE, TOGGLE, FORCE_LOW or FORCE_HIGH. NONE represents a
+control or metadata event and does not change polarity. `edge->flags' contains
+only non-polarity BLOCK, STOP, STOP48, LENGTH_SHORT, LENGTH_LONG and TAPE bits.
+On failure neither `edge' nor any playback state is modified.
 
-LIBSPECTRUM_TAPE_FLAGS_BLOCK	The current block ends with this edge
-LIBSPECTRUM_TAPE_FLAGS_STOP	User code should stop playing the tape
-				after this edge
-LIBSPECTRUM_TAPE_FLAGS_STOP48   User code should stop playing the tape
-				after this edge if it was emulating a
-				48K machine. The desired behaviour for
-				things like the TC2048 is undefined in
-				the .tzx format :-(
-LIBSPECTRUM_TAPE_FLAGS_LEVEL_LOW The input signal from the tape should be
-				 forced low at this edge
-LIBSPECTRUM_TAPE_FLAGS_LEVEL_HIGH The input signal from the tape should be
-				  forced high at this edge
-LIBSPECTRUM_TAPE_FLAGS_NO_EDGE	This "edge" isn't really an edge and doesn't
-				change the input signal from the tape.
-LIBSPECTRUM_TAPE_FLAGS_LENGTH_SHORT This edge is a "short" edge; used
-				    for loader acceleration
-LIBSPECTRUM_TAPE_FLAGS_LENGTH_LONG This edge is a "long" edge; again
-                                   used for loader acceleration
-LIBSPECTRUM_TAPE_FLAGS_TAPE	The current tape ends with this edge
+The tape owns logical polarity. It is low after allocation, clear, successful
+read, end-of-tape rewind, or explicit `libspectrum_tape_nth_block' positioning.
+Natural block changes and stop/resume retain it; format-level explicit polarity
+instructions may force it. `libspectrum_tape_signal_level_get' queries it.
+
+libspectrum_tape_cursor*
+libspectrum_tape_cursor_capture( libspectrum_tape *tape )
+
+Capture an opaque cursor containing an independent copy of `tape''s complete
+current playback state, including signal level. Advancing the cursor does not
+change `tape'. The source tape must outlive the cursor.
+
+A cursor snapshots the structural and block-content generations of the source
+tape. Appending, inserting, removing or clearing blocks, or a successful call
+to any public setter on any source block, invalidates existing cursors. This
+deliberately strict rule includes current, future, metadata and control-flow
+blocks, even if a block is not reachable from the cursor's current playback
+path; setting a field to its existing value also counts as a mutation. Mutating
+a block which is not in the source tape has no effect on the cursor. All cursor
+advance, query and apply operations reject an invalidated cursor with
+`LIBSPECTRUM_ERROR_INVALID', and cloning one returns NULL. Validation compares
+the two tape generations and does not scan or dereference individual blocks.
+
+Some block accessors return mutable pointers to block-owned storage. Changes
+made directly through those pointers cannot be detected. To keep a cursor
+valid, callers must not modify such storage; all block mutation must use public
+setters and then treat existing cursors as invalidated.
+
+libspectrum_tape_cursor*
+libspectrum_tape_cursor_clone( const libspectrum_tape_cursor *cursor )
+
+Return an independent copy of `cursor', or NULL if it has been invalidated.
+This is useful when exploring more than one speculative playback path.
+
+libspectrum_error
+libspectrum_tape_cursor_free( libspectrum_tape_cursor *cursor )
+
+Free `cursor'.
+
+libspectrum_error
+libspectrum_tape_cursor_get_next_edge( libspectrum_tape_edge *edge,
+                                       libspectrum_tape_cursor *cursor )
+
+Advance `cursor' without changing the source tape, with the same result and
+atomic failure semantics as `libspectrum_tape_get_next_edge'.
+
+libspectrum_error
+libspectrum_tape_cursor_apply( libspectrum_tape *tape,
+                               const libspectrum_tape_cursor *cursor )
+
+Atomically replace `tape''s complete playback state, including polarity, with
+the state stored in `cursor'. The cursor must
+have been captured from `tape' and must still be valid. Applying a cursor does
+not invoke user-interface callbacks; applications should update block-selection
+displays after a successful call when appropriate.
+
+libspectrum_error
+libspectrum_tape_cursor_state( libspectrum_tape_state_type *state,
+                               const libspectrum_tape_cursor *cursor )
+
+Return in `state' the playback state stored in `cursor', without changing the
+source tape. An invalid cursor or a block type without one of the public
+playback states returns `LIBSPECTRUM_ERROR_INVALID'.
+
+libspectrum_error
+libspectrum_tape_cursor_signal_level( libspectrum_tape_signal_level *level,
+                                      const libspectrum_tape_cursor *cursor )
+
+Return in `level' the absolute input signal level corresponding to `cursor'.
+
+libspectrum_error
+libspectrum_tape_cursor_position( int *n,
+                                  const libspectrum_tape_cursor *cursor )
+
+Return in `n' the zero-based block containing `cursor''s playback position.
+This does not alter the source tape and can be used to determine whether
+applying a cursor should update a block-selection display.
+
+The source tape and its blocks must outlive every cursor captured from it. Tape
+objects and cursors have no internal locking. A caller must serialize all
+operations on a tape, its blocks and cursors captured from it, including block
+setters and cursor validation; generation checks are invalidation guards, not
+thread synchronization.
 
 int libspectrum_tape_present( libspectrum_tape *tape )
 
@@ -1145,18 +1211,22 @@ libspectrum_error libspectrum_tape_nth_block( libspectrum_tape *tape, int n )
 Set the current block on the tape to be the `n'th block and initialise
 it. Again, the first block on the tape is block 0.
 
-void
+libspectrum_error
 libspectrum_tape_append_block( libspectrum_tape *tape,
                                libspectrum_tape_block *block )
 
-Append `block' to `tape'.
+Append `block' to `tape'. This transfers ownership of `block' to `tape'. A
+block must not already belong to a tape and must not be freed separately after
+it has been appended. Both arguments must be non-NULL. A NULL argument or a
+block which already has an owner returns `LIBSPECTRUM_ERROR_INVALID'; ownership
+and both objects remain unchanged.
 
 void
 libspectrum_tape_remove_block( libspectrum_tape *tape,
 			       libspectrum_tape_iterator it )
 
-Remove the block pointed to by `it' (see the "Tape iterators" section)
-from the tape.
+Remove and free the block pointed to by `it' (see the "Tape iterators"
+section) from the tape.
 
 libspectrum_error
 libspectrum_tape_insert_block( libspectrum_tape *tape,
@@ -1164,7 +1234,10 @@ libspectrum_tape_insert_block( libspectrum_tape *tape,
 			       size_t position )
 
 Insert `block' into `tape` in position `position', where position 0
-would make the new block the first block on the tape.
+would make the new block the first block on the tape. This transfers ownership
+as described for `libspectrum_tape_append_block'. A NULL argument or a block
+which already has an owner returns `LIBSPECTRUM_ERROR_INVALID'; ownership and
+both objects remain unchanged.
 
 libspectrum_tape_block*
 libspectrum_tape_current_block( libspectrum_tape *tape )
@@ -1482,23 +1555,13 @@ LIBSPECTRUM_TAPE_STATE_DATA2 	/* Second edge of a data bit */
 LIBSPECTRUM_TAPE_STATE_TAIL 	/* The tail pause following the last data bit */
 LIBSPECTRUM_TAPE_STATE_PAUSE 	/* The pause at the end of a block */
 
-Setting this value to anything other than
-`LIBSPECTRUM_TAPE_STATE_PAUSE' will produce undefined results.
-Exposing this parameter is an ugly hack needed by Fuse to allow for
-flash-loading of tape blocks, and setting it should not be used unless
-absolutely necessary.
+This state is a read-only playback query. Use a complete tape cursor to
+advance and restore playback; partial state mutation is not supported.
 
 libspectrum_tape_state_type
 libspectrum_tape_state( libspectrum_tape *tape )
 
 Return the current playback state of the active block.
-
-libspectrum_error
-libspectrum_tape_set_state( libspectrum_tape *tape,
-                            libspectrum_tape_state_type state )
-
-Set the current playback state of the active block. This is only valid
-for block types that expose a mutable playback state.
 
 The libspectrum_tape_generalised_data_symbol_table is an opaque data
 structure which represents the "symbol table" used in the TZX
