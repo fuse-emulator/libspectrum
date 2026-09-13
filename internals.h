@@ -401,16 +401,13 @@ libspectrum_slist_cleanup( void );
 void
 libspectrum_hashtable_cleanup( void );
 
-#ifdef HAVE_STDATOMIC_H
 #include <stdatomic.h>
 
 void
-atomic_lock( atomic_char *lock_ptr );
+atomic_lock( atomic_flag *lock_ptr );
 
 void
-atomic_unlock( atomic_char *lock_ptr );
-
-#endif				/* #ifdef HAVE_STDATOMIC_H */
+atomic_unlock( atomic_flag *lock_ptr );
 
 #endif				/* #ifndef HAVE_LIB_GLIB */
 
