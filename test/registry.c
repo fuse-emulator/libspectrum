@@ -248,6 +248,7 @@ test_description tests[] = {
   TEST_ENTRY( snap_interface2_active_and_rom_getter_setter, "Snap interface2_active flag and interface2_rom pointer getter/setter" ),
   TEST_ENTRY( snap_joystick_active_count_list_and_inputs_getter_setter, "Snap joystick_active_count, joystick_list, and joystick_inputs getter/setter" ),
   TEST_ENTRY( tape_rom_block_data_data_length_and_pause_getter_setter, "Tape ROM block data, data_length, and pause getter/setter" ),
+  TEST_ENTRY( tzx_write_preserves_pzx_style_initial_pulse_levels, "TZX writing preserves PZX-style initial pulse levels" ),
   TEST_ENTRY( tzx_pulse_sequence_over_255_splits_into_multiple_pulses_blocks, "TZX PULSE_SEQUENCE over 255 pulses splits into multiple PULSES blocks" ),
   TEST_ENTRY( machine_capabilities_16k_and_48k_have_no_capabilities, "Machine capabilities: 16K and 48K have a beeper; UNKNOWN has no capabilities" ),
   TEST_ENTRY( machine_capabilities_48k_ntsc_has_ntsc_only, "Machine capabilities: 48K NTSC has NTSC and a beeper" ),

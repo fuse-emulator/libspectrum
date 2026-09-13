@@ -658,9 +658,9 @@ tzx_read_pause( libspectrum_tape *tape, const libspectrum_byte **ptr,
 
   /* Get the pause length */
   libspectrum_set_pause_ms( block, (*ptr)[0] + (*ptr)[1] * 0x100 );
-  /* Pause blocks should change the pulse level to ensure that the
-   * last edge is properly finished, so set the block level to -1 */
-  libspectrum_tape_block_set_level( block, -1 );
+  /* TZX ID 0x20 is a low pulse for its duration. A zero-duration pause is
+     ignored by playback and therefore does not change the current level. */
+  libspectrum_tape_block_set_level( block, 0 );
   (*ptr) += 2;
 
   /* And return */

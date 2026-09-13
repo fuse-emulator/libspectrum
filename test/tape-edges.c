@@ -440,8 +440,7 @@ trailing_pause_edges_list[] =
   { 0, 1, 8 },	/* 0ms Trailing pause End of block, no edge */
 
   /* 1s Pause block */
-  { 3500000, 1, 0 },	/* Pulse End of block, end of tape, stop the tape
-                           (should have an edge and not override the level) */
+  { 3500000, 1, 16 },	/* Low pulse; end of block, tape and playback */
 
   { -1, 0, 0 }		/* End marker */
 
