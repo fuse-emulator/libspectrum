@@ -1151,6 +1151,62 @@ done:
 }
 
 test_return_t
+rzx_playback_skips_empty_input_blocks( void )
+{
+  libspectrum_rzx *rzx = libspectrum_rzx_alloc();
+  libspectrum_snap *snap = NULL;
+  int finished = 0;
+  test_return_t r = TEST_FAIL;
+
+  if( !rzx ) return TEST_INCOMPLETE;
+
+  /* Empty input blocks may occur at the start, between recorded frames, or
+     at the end of an RZX file. */
+  libspectrum_rzx_start_input( rzx, 0 );
+  libspectrum_rzx_stop_input( rzx );
+
+  libspectrum_rzx_start_input( rzx, 0 );
+  if( libspectrum_rzx_store_frame( rzx, 10, 0, NULL ) ) goto done;
+  libspectrum_rzx_stop_input( rzx );
+
+  libspectrum_rzx_start_input( rzx, 0 );
+  libspectrum_rzx_stop_input( rzx );
+
+  libspectrum_rzx_start_input( rzx, 0 );
+  if( libspectrum_rzx_store_frame( rzx, 20, 0, NULL ) ) goto done;
+  libspectrum_rzx_stop_input( rzx );
+
+  libspectrum_rzx_start_input( rzx, 0 );
+  libspectrum_rzx_stop_input( rzx );
+
+  if( libspectrum_rzx_start_playback( rzx, 0, &snap ) ||
+      libspectrum_rzx_instructions( rzx ) != 10 ) {
+    fprintf( stderr, "%s: failed to skip initial empty input block\n",
+             progname );
+    goto done;
+  }
+
+  if( libspectrum_rzx_playback_frame( rzx, &finished, &snap ) || finished ||
+      libspectrum_rzx_instructions( rzx ) != 20 ) {
+    fprintf( stderr, "%s: failed to skip intermediate empty input block\n",
+             progname );
+    goto done;
+  }
+
+  if( libspectrum_rzx_playback_frame( rzx, &finished, &snap ) || !finished ) {
+    fprintf( stderr, "%s: failed to skip trailing empty input block\n",
+             progname );
+    goto done;
+  }
+
+  r = TEST_PASS;
+
+ done:
+  libspectrum_rzx_free( rzx );
+  return r;
+}
+
+test_return_t
 rzx_playback_input_cursor_management( void )
 {
   libspectrum_rzx *rzx = libspectrum_rzx_alloc();

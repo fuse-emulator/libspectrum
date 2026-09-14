@@ -492,8 +492,10 @@ libspectrum_rzx_start_playback( libspectrum_rzx *rzx, int which,
     
     block = list->data;
 
-    /* Skip any blocks which aren't input recording blocks */
-    if( block->type != LIBSPECTRUM_RZX_INPUT_BLOCK ) continue;
+    /* Skip any blocks which aren't non-empty input recording blocks */
+    if( block->type != LIBSPECTRUM_RZX_INPUT_BLOCK ||
+        !block->types.input.count )
+      continue;
 
     /* Skip input recording blocks until we find the one we want */
     if( i-- ) continue;
@@ -553,7 +555,8 @@ libspectrum_rzx_playback_frame( libspectrum_rzx *rzx, int *finished,
 
       rzx_block_t *block = it->data;
 
-      if( block->type == LIBSPECTRUM_RZX_INPUT_BLOCK ) {
+      if( block->type == LIBSPECTRUM_RZX_INPUT_BLOCK &&
+          block->types.input.count ) {
 	rzx->current_block = it;
 	break;
       } else if( block->type == LIBSPECTRUM_RZX_SNAPSHOT_BLOCK ) {
