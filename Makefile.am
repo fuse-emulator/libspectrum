@@ -31,6 +31,7 @@ libspectrum_la_SOURCES = bzip2.c \
 			 crypto.c \
 			 csw.c \
 			 dck.c \
+			 file.c \
 			 ide.c \
 			 libspectrum.c \
                          memory.c \

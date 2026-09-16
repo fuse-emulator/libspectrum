@@ -470,6 +470,12 @@ test_return_t identify_file_raw_unknown_buffer_returns_unknown( void );
 test_return_t identify_gzip_inflate_accepts_exact_limit( void );
 test_return_t identify_gzip_inflate_rejects_output_over_limit( void );
 
+/* file.c */
+test_return_t file_read_data_identifies_tzx( void );
+test_return_t file_read_data_resolves_nested_gzip( void );
+test_return_t file_open_resolves_compressed_file( void );
+test_return_t file_open_keeps_hdf_path_backed( void );
+
 /* snap-read.c */
 test_return_t split_to_48k_pages_distributes_memory_to_correct_pages( void );
 test_return_t split_to_48k_pages_fails_when_page_already_occupied( void );

@@ -470,7 +470,79 @@ simply combines the calls to `libspectrum_identify_file' and
 `libspectrum_identify_class', returning the file type in `*type' and
 the file class in `*class'. It therefore also transparently decompresses
 compressed input and applies the 64 MiB expanded-size limit described
-above.
+above. The decompressed data used during identification is discarded; callers
+which need to retain data matching the returned type and class should use the
+loaded file API below.
+
+Loaded files
+------------
+
+`libspectrum_file' represents a file ready for dispatch to a format reader. Its
+filename, data, length, type and class describe the same file layer. Opening or
+supplying data identifies the file and recursively removes compression wrappers;
+there is no public intermediate "loaded but unresolved" state. Resolution is
+limited to 32 compression layers, and each decompression operation is subject to
+the 64 MiB expanded-size limit described above.
+
+The structure is public so it can be embedded or stack-allocated, but callers
+should initialise and clear it with:
+
+void libspectrum_file_init( libspectrum_file *file )
+void libspectrum_file_clear( libspectrum_file *file )
+
+An initialised file has no name or data and has type and class UNKNOWN. `clear'
+frees all resources owned by the object and restores that empty state. The
+heap-allocation convenience functions are:
+
+libspectrum_file* libspectrum_file_alloc( void )
+void libspectrum_file_free( libspectrum_file *file )
+
+`libspectrum_file_free' accepts NULL. Do not call it for an object allocated on
+the stack; use `libspectrum_file_clear' instead.
+
+libspectrum_error
+libspectrum_file_open( libspectrum_file *file, const char *filename )
+
+Open a filesystem path and prepare the file for dispatch. Ordinary Spectrum
+files are read into an owned buffer, identified and recursively decompressed.
+HDF hard disk images identified by their signature remain path-backed so that a
+potentially large image is not read into memory. A successful call replaces any
+previous contents of `file'; a failed call leaves its previous contents intact.
+
+Data already held by an application can be supplied with either of these calls:
+
+libspectrum_error
+libspectrum_file_read_data( libspectrum_file *file, const char *filename,
+                            const libspectrum_byte *buffer, size_t length )
+
+libspectrum_error
+libspectrum_file_take_data( libspectrum_file *file, const char *filename,
+                            libspectrum_byte *buffer, size_t length )
+
+`read_data' copies the input. The caller continues to own `buffer' and may alter
+or free it after the call. `take_data' takes ownership of a buffer allocated
+compatibly with `libspectrum_free', whether the operation succeeds or fails.
+Both functions copy `filename', which may be NULL, then identify and recursively
+decompress the data. On success they replace the previous contents of `file';
+on failure those previous contents remain intact.
+
+The resolved properties are available through:
+
+const char *libspectrum_file_name( const libspectrum_file *file )
+const libspectrum_byte *libspectrum_file_data( const libspectrum_file *file )
+size_t libspectrum_file_size( const libspectrum_file *file )
+libspectrum_id_t libspectrum_file_type( const libspectrum_file *file )
+libspectrum_class_t libspectrum_file_class( const libspectrum_file *file )
+libspectrum_file_storage
+libspectrum_file_get_storage( const libspectrum_file *file )
+
+The name and data returned by the accessors are borrowed from the object and
+remain valid until it is cleared, freed or successfully replaced. Storage is one
+of LIBSPECTRUM_FILE_STORAGE_NONE, LIBSPECTRUM_FILE_STORAGE_PATH or
+LIBSPECTRUM_FILE_STORAGE_BUFFER. A path-backed HDF has no data buffer and a size
+of zero; consumers should use its filename. Buffer-backed files own their data.
+Compression suffixes are removed from the resolved filename where the relevant
+compression format supports doing so.
 
 Buffer helpers
 --------------

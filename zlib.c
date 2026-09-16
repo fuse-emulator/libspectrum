@@ -41,13 +41,8 @@
 #include "internals.h"
 
 static libspectrum_error
-skip_gzip_header( const libspectrum_byte **gzptr, size_t *gzlength );
-static libspectrum_error
-skip_null_terminated_string( const libspectrum_byte **ptr, size_t *length,
-			     const char *name );
-static libspectrum_error
 zlib_inflate( const libspectrum_byte *gzptr, size_t gzlength,
-	      libspectrum_byte **outptr, size_t *outlength, int gzip_hack,
+	      libspectrum_byte **outptr, size_t *outlength, int window_bits,
               size_t max_outlength );
 
 libspectrum_error 
@@ -61,7 +56,7 @@ libspectrum_zlib_inflate( const libspectrum_byte *gzptr, size_t gzlength,
  * Returns:	error flag (libspectrum_error)
  */
 {
-  return zlib_inflate( gzptr, gzlength, outptr, outlength, 0, SIZE_MAX );
+  return zlib_inflate( gzptr, gzlength, outptr, outlength, 15, SIZE_MAX );
 }
 
 libspectrum_error
@@ -69,11 +64,7 @@ libspectrum_gzip_inflate( const libspectrum_byte *gzptr, size_t gzlength,
 			  libspectrum_byte **outptr, size_t *outlength,
                           size_t max_outlength )
 {
-  int error;
-
-  error = skip_gzip_header( &gzptr, &gzlength ); if( error ) return error;
-
-  return zlib_inflate( gzptr, gzlength, outptr, outlength, 1,
+  return zlib_inflate( gzptr, gzlength, outptr, outlength, 15 + 16,
                        max_outlength );
 }
 
@@ -82,13 +73,13 @@ libspectrum_zip_inflate( const libspectrum_byte *zipptr, size_t ziplength,
                          libspectrum_byte **outptr, size_t *outlength,
                          size_t max_outlength )
 {
-  return zlib_inflate( zipptr, ziplength, outptr, outlength, 1,
+  return zlib_inflate( zipptr, ziplength, outptr, outlength, -15,
                        max_outlength );
 }
 
 static libspectrum_error
 zlib_inflate( const libspectrum_byte *gzptr, size_t gzlength,
-	      libspectrum_byte **outptr, size_t *outlength, int gzip_hack,
+	      libspectrum_byte **outptr, size_t *outlength, int window_bits,
               size_t max_outlength )
 {
   z_stream stream;
@@ -108,25 +99,7 @@ zlib_inflate( const libspectrum_byte *gzptr, size_t gzlength,
 
   stream.next_in = gzptr; stream.avail_in = gzlength;
 
-  if( gzip_hack ) { 
-
-    /*
-     * HACK ALERT (comment from zlib 1.1.14:gzio.c:143)
-     *
-     * windowBits is passed < 0 to tell that there is no zlib header.
-     * Note that in this case inflate *requires* an extra "dummy" byte
-     * after the compressed stream in order to complete decompression
-     * and return Z_STREAM_END. Here the gzip CRC32 ensures that 4 bytes
-     * are present after the compressed stream.
-     *
-     */
-    error = inflateInit2( &stream, -15 );
-
-  } else {
-
-    error = inflateInit( &stream );
-
-  }
+  error = inflateInit2( &stream, window_bits );
 
   switch( error ) {
 
@@ -245,101 +218,6 @@ zlib_inflate( const libspectrum_byte *gzptr, size_t gzlength,
     inflateEnd( &stream );
     return LIBSPECTRUM_ERROR_LOGIC;
   }
-
-  return LIBSPECTRUM_ERROR_NONE;
-}
-
-static libspectrum_error
-skip_gzip_header( const libspectrum_byte **gzptr, size_t *gzlength )
-{
-  libspectrum_byte flags;
-  libspectrum_error error;
-
-  if( *gzlength < 10 ) {
-    libspectrum_print_error( LIBSPECTRUM_ERROR_CORRUPT,
-			     "not enough data for gzip header" );
-    return LIBSPECTRUM_ERROR_CORRUPT;
-  }
-
-  if( (*gzptr)[0] != 0x1f || (*gzptr)[1] != 0x8b ) {
-    libspectrum_print_error( LIBSPECTRUM_ERROR_CORRUPT,
-			     "gzip header missing" );
-    return LIBSPECTRUM_ERROR_CORRUPT;
-  }
-
-  if( (*gzptr)[2] != 8 ) {
-    libspectrum_print_error( LIBSPECTRUM_ERROR_UNKNOWN,
-			     "unknown gzip compression method %d",
-			     (*gzptr)[2] );
-    return LIBSPECTRUM_ERROR_UNKNOWN;
-  }
-
-  flags = (*gzptr)[3];
-
-  (*gzptr) += 10; (*gzlength) -= 10;
-
-  if( flags & 0x04 ) {		/* extra header present */
-
-    size_t length;
-
-    if( *gzlength < 2 ) {
-      libspectrum_print_error(
-        LIBSPECTRUM_ERROR_CORRUPT,
-	"not enough data for gzip extra header length"
-      );
-      return LIBSPECTRUM_ERROR_CORRUPT;
-    }
-
-    length = (*gzptr)[0] + (*gzptr)[1] * 0x100;
-    (*gzptr) += 2; (*gzlength) -= 2;
-
-    if( *gzlength < length ) {
-      libspectrum_print_error( LIBSPECTRUM_ERROR_CORRUPT,
-			       "not enough data for gzip extra header" );
-      return LIBSPECTRUM_ERROR_CORRUPT;
-    }
-
-  }
-
-  if( flags & 0x08 ) {		/* original file name present */
-    error = skip_null_terminated_string( gzptr, gzlength, "original name" );
-    if( error ) return error;
-  }
-
-  if( flags & 0x10 ) {		/* comment present */
-    error = skip_null_terminated_string( gzptr, gzlength, "comment" );
-    if( error ) return error;
-  }
-
-  if( flags & 0x02 ) {		/* header CRC present */
-
-    if( *gzlength < 2 ) {
-      libspectrum_print_error( LIBSPECTRUM_ERROR_CORRUPT,
-			       "not enough data for gzip header CRC" );
-      return LIBSPECTRUM_ERROR_CORRUPT;
-    }
-
-    /* Could check the header CRC if we really wanted to */
-    (*gzptr) += 2; (*gzptr) -= 2;
-  }
-
-  return LIBSPECTRUM_ERROR_NONE;
-}
-
-static libspectrum_error
-skip_null_terminated_string( const libspectrum_byte **ptr, size_t *length,
-			     const char *name )
-{
-  while( **ptr && *length ) { (*ptr)++; (*length)--; }
-
-  if( !( *length ) ) {
-    libspectrum_print_error( LIBSPECTRUM_ERROR_CORRUPT,
-			     "not enough data for gzip %s", name );
-    return LIBSPECTRUM_ERROR_CORRUPT;
-  }
-
-  /* Skip the null as well */
-  (*ptr)++; (*length)--;
 
   return LIBSPECTRUM_ERROR_NONE;
 }

@@ -377,6 +377,54 @@ LIBSPECTRUM_API libspectrum_error
 libspectrum_identify_class( libspectrum_class_t *libspectrum_class,
                             libspectrum_id_t type );
 
+/* A loaded file whose name, data and identification all describe the same
+   (recursively uncompressed) layer. */
+typedef enum libspectrum_file_storage {
+  LIBSPECTRUM_FILE_STORAGE_NONE,
+  LIBSPECTRUM_FILE_STORAGE_PATH,
+  LIBSPECTRUM_FILE_STORAGE_BUFFER
+} libspectrum_file_storage;
+
+typedef struct libspectrum_file {
+  char *filename;
+  libspectrum_byte *buffer;
+  size_t length;
+  libspectrum_id_t type;
+  libspectrum_class_t file_class;
+  libspectrum_file_storage storage;
+} libspectrum_file;
+
+LIBSPECTRUM_API void libspectrum_file_init( libspectrum_file *file );
+LIBSPECTRUM_API void libspectrum_file_clear( libspectrum_file *file );
+LIBSPECTRUM_API libspectrum_file* libspectrum_file_alloc( void );
+LIBSPECTRUM_API void libspectrum_file_free( libspectrum_file *file );
+
+LIBSPECTRUM_API libspectrum_error
+libspectrum_file_open( libspectrum_file *file, const char *filename );
+
+LIBSPECTRUM_API libspectrum_error
+libspectrum_file_read_data( libspectrum_file *file, const char *filename,
+                            const libspectrum_byte *buffer, size_t length );
+
+/* Take ownership of buffer immediately, including on failure. The filename is
+   always copied. */
+LIBSPECTRUM_API libspectrum_error
+libspectrum_file_take_data( libspectrum_file *file, const char *filename,
+                            libspectrum_byte *buffer, size_t length );
+
+LIBSPECTRUM_API const char*
+libspectrum_file_name( const libspectrum_file *file );
+LIBSPECTRUM_API const libspectrum_byte*
+libspectrum_file_data( const libspectrum_file *file );
+LIBSPECTRUM_API size_t
+libspectrum_file_size( const libspectrum_file *file );
+LIBSPECTRUM_API libspectrum_id_t
+libspectrum_file_type( const libspectrum_file *file );
+LIBSPECTRUM_API libspectrum_class_t
+libspectrum_file_class( const libspectrum_file *file );
+LIBSPECTRUM_API libspectrum_file_storage
+libspectrum_file_get_storage( const libspectrum_file *file );
+
 /* Different Spectrum variants and their capabilities */
 
 /* The machine types we can handle */
