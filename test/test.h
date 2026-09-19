@@ -217,6 +217,7 @@ test_return_t z80_interface1_8k_rom_roundtrip( void );
 test_return_t z80_interface1_16k_rom_roundtrip( void );
 test_return_t microdrive_alloc_free_and_write_protect_getter_setter( void );
 test_return_t microdrive_cartridge_len_and_data_getter_setter( void );
+test_return_t microdrive_structured_block_accessors( void );
 test_return_t microdrive_mdr_write_mdr_read_roundtrip( void );
 test_return_t snap_machine_type_getter_setter_and_default_value( void );
 test_return_t snap_memptr_getter_setter( void );

@@ -2019,6 +2019,21 @@ The maximum length in bytes of a microdrive cartridge
 (LIBSPECTRUM_MICRODRIVE_BLOCK_MAX * LIBSPECTRUM_MICRODRIVE_BLOCK_LEN =
 137922).
 
+LIBSPECTRUM_MICRODRIVE_HEADER_BLOCK
+
+Bit 0 of the header flag, indicating a header block. Callers should test this
+bit rather than compare the complete flag byte with 1, as its other bits may
+contain residual data.
+
+LIBSPECTRUM_MICRODRIVE_RECORD_EOF
+
+Bit 1 of the record flags, indicating the final block of a file.
+
+LIBSPECTRUM_MICRODRIVE_RECORD_NON_PRINT
+
+Bit 2 of the record flags. A clear bit indicates a PRINT file; a set bit
+indicates another file type.
+
 Routines
 --------
 
@@ -2060,14 +2075,80 @@ void
 libspectrum_microdrive_set_cartridge_len( libspectrum_microdrive *microdrive,
                                           libspectrum_byte len )
 
-Return or set the length in bytes of the cartridge in the drive.
+Return or set the number of blocks in the cartridge in the drive.
+
+size_t
+libspectrum_microdrive_block_count( const libspectrum_microdrive *microdrive )
+
+Return the number of formatted blocks in the cartridge.
+
+The following routines provide a structured, read-only view of a block. The
+`which' argument is a zero-based block index and must be less than the value
+returned by `libspectrum_microdrive_block_count'. Numeric accessors return zero
+for an invalid index. Pointer accessors return NULL for an invalid index.
+
+libspectrum_byte
+libspectrum_microdrive_block_header_flag(
+  const libspectrum_microdrive *microdrive, size_t which )
+libspectrum_byte
+libspectrum_microdrive_block_number( const libspectrum_microdrive *microdrive,
+                                     size_t which )
+libspectrum_word
+libspectrum_microdrive_block_header_unused(
+  const libspectrum_microdrive *microdrive, size_t which )
+const libspectrum_byte*
+libspectrum_microdrive_block_cartridge_name(
+  const libspectrum_microdrive *microdrive, size_t which )
+libspectrum_byte
+libspectrum_microdrive_block_header_checksum(
+  const libspectrum_microdrive *microdrive, size_t which )
+
+Return the fields in the block header. `header_unused' returns the reserved
+little-endian word at offsets 2 and 3; its value is unspecified by the format.
+The cartridge name points to a ten-byte, space-padded ZX-encoded field; it is
+not null terminated.
+
+libspectrum_byte
+libspectrum_microdrive_block_record_flags(
+  const libspectrum_microdrive *microdrive, size_t which )
+libspectrum_byte
+libspectrum_microdrive_block_record_number(
+  const libspectrum_microdrive *microdrive, size_t which )
+libspectrum_word
+libspectrum_microdrive_block_record_length(
+  const libspectrum_microdrive *microdrive, size_t which )
+const libspectrum_byte*
+libspectrum_microdrive_block_record_name(
+  const libspectrum_microdrive *microdrive, size_t which )
+libspectrum_byte
+libspectrum_microdrive_block_record_checksum(
+  const libspectrum_microdrive *microdrive, size_t which )
+
+Return the fields in the record header. Record length is at most 512 bytes.
+A used record is either marked EOF or has a length of 512. A record with EOF
+clear and length zero is empty; one with EOF set and length zero is unusable.
+The record name has the same format as the cartridge name.
+
+const libspectrum_byte*
+libspectrum_microdrive_block_data( const libspectrum_microdrive *microdrive,
+                                   size_t which )
+libspectrum_byte
+libspectrum_microdrive_block_data_checksum(
+  const libspectrum_microdrive *microdrive, size_t which )
+
+Return the 512-byte record data area and its stored checksum. Only the first
+`record_length' bytes contain record data, but the checksum covers all 512
+bytes. All pointers returned by the block accessors refer to storage owned by
+the microdrive and remain valid only until the microdrive is modified or freed.
 
 int
 libspectrum_microdrive_checksum( libspectrum_microdrive *microdrive,
                                  libspectrum_byte which )
 
 Check whether the checksum for the <n>th block on the microdrive is
-correct, where <n> is specified by `which'.
+correct, where <n> is specified by `which'. Returns 0 if all checksums are
+valid, -1 for a preset bad block, 1 for a bad header checksum, 2 for a bad
+record descriptor checksum, or 3 for a bad data checksum.
 
 .mdr file handling
 ------------------

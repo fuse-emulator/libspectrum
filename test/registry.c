@@ -148,6 +148,7 @@ test_description tests[] = {
   TEST_ENTRY( snap_z80_status_getter_setter_iff1_iff2_im_tstates_halted, "Snap Z80 status getter/setter (iff1, iff2, im, tstates, halted)" ),
   TEST_ENTRY( microdrive_alloc_free_and_write_protect_getter_setter, "Microdrive alloc/free and write_protect getter/setter" ),
   TEST_ENTRY( microdrive_cartridge_len_and_data_getter_setter, "Microdrive cartridge_len and data getter/setter" ),
+  TEST_ENTRY( microdrive_structured_block_accessors, "Microdrive structured block accessors" ),
   TEST_ENTRY( microdrive_mdr_write_mdr_read_roundtrip, "Microdrive mdr_write/mdr_read roundtrip" ),
   TEST_ENTRY( snap_machine_type_getter_setter_and_default_value, "Snap machine type getter/setter and default value" ),
   TEST_ENTRY( snap_memptr_getter_setter, "Snap memptr getter/setter" ),

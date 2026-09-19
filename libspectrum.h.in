@@ -1047,6 +1047,10 @@ typedef struct libspectrum_microdrive libspectrum_microdrive;
 #define LIBSPECTRUM_MICRODRIVE_CARTRIDGE_LENGTH \
 	( LIBSPECTRUM_MICRODRIVE_BLOCK_MAX * LIBSPECTRUM_MICRODRIVE_BLOCK_LEN )
 
+#define LIBSPECTRUM_MICRODRIVE_HEADER_BLOCK 0x01
+#define LIBSPECTRUM_MICRODRIVE_RECORD_EOF 0x02
+#define LIBSPECTRUM_MICRODRIVE_RECORD_NON_PRINT 0x04
+
 /* Constructor/destructor */
 
 LIBSPECTRUM_API libspectrum_microdrive*
@@ -1074,6 +1078,48 @@ libspectrum_microdrive_cartridge_len( const libspectrum_microdrive *microdrive )
 LIBSPECTRUM_API void
 libspectrum_microdrive_set_cartridge_len( libspectrum_microdrive *microdrive,
 					  libspectrum_byte len );
+
+/* Structured block accessors. Names are ten-byte ZX-encoded fields and data
+   is LIBSPECTRUM_MICRODRIVE_DATA_LEN bytes. Returned pointers remain owned by
+   the microdrive and are invalidated when it is modified or freed. */
+LIBSPECTRUM_API size_t
+libspectrum_microdrive_block_count( const libspectrum_microdrive *microdrive );
+LIBSPECTRUM_API libspectrum_byte
+libspectrum_microdrive_block_header_flag(
+  const libspectrum_microdrive *microdrive, size_t which );
+LIBSPECTRUM_API libspectrum_byte
+libspectrum_microdrive_block_number( const libspectrum_microdrive *microdrive,
+                                     size_t which );
+LIBSPECTRUM_API libspectrum_word
+libspectrum_microdrive_block_header_unused(
+  const libspectrum_microdrive *microdrive, size_t which );
+LIBSPECTRUM_API const libspectrum_byte*
+libspectrum_microdrive_block_cartridge_name(
+  const libspectrum_microdrive *microdrive, size_t which );
+LIBSPECTRUM_API libspectrum_byte
+libspectrum_microdrive_block_header_checksum(
+  const libspectrum_microdrive *microdrive, size_t which );
+LIBSPECTRUM_API libspectrum_byte
+libspectrum_microdrive_block_record_flags(
+  const libspectrum_microdrive *microdrive, size_t which );
+LIBSPECTRUM_API libspectrum_byte
+libspectrum_microdrive_block_record_number(
+  const libspectrum_microdrive *microdrive, size_t which );
+LIBSPECTRUM_API libspectrum_word
+libspectrum_microdrive_block_record_length(
+  const libspectrum_microdrive *microdrive, size_t which );
+LIBSPECTRUM_API const libspectrum_byte*
+libspectrum_microdrive_block_record_name(
+  const libspectrum_microdrive *microdrive, size_t which );
+LIBSPECTRUM_API libspectrum_byte
+libspectrum_microdrive_block_record_checksum(
+  const libspectrum_microdrive *microdrive, size_t which );
+LIBSPECTRUM_API const libspectrum_byte*
+libspectrum_microdrive_block_data( const libspectrum_microdrive *microdrive,
+                                   size_t which );
+LIBSPECTRUM_API libspectrum_byte
+libspectrum_microdrive_block_data_checksum(
+  const libspectrum_microdrive *microdrive, size_t which );
 
 /* .mdr format routines */
 
