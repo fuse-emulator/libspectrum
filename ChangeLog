@@ -1,4 +1,4 @@
-2026-09-16  Fredrick Meunier  <fredm@spamcop.net>
+2026-09-20  Fredrick Meunier  <fredm@spamcop.net>
 
         * libspectrum 1.7.0 released.
 
@@ -12,6 +12,9 @@
 
         * Add RZX playback input cursor and creator metadata APIs (Fredrick
           Meunier).
+
+        * Add structured accessors for microdrive block headers, record
+          descriptors, data and checksums (Fredrick Meunier).
 
         * Require C11 or later (Fredrick Meunier).
 
