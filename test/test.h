@@ -120,6 +120,7 @@ test_return_t tape_signal_level_lifecycle_invariants( void );
 test_return_t no_pilot_pulse_gdb_tzx_file( void );
 test_return_t csw_conversion( void );
 test_return_t csw_rle_pulse_conversion( void );
+test_return_t csw_sample_rate_precision( void );
 test_return_t write_szx_z80r_chunk( void );
 test_return_t write_szx_spcr_chunk( void );
 test_return_t write_szx_joy_chunk( void );

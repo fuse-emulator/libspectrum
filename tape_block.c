@@ -242,6 +242,7 @@ libspectrum_tape_block_init( libspectrum_tape_block *block,
                                   &(state->block_state.generalised_data) );
   case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
     state->block_state.rle_pulse.index = 0;
+    state->block_state.rle_pulse.remainder = 0;
     return LIBSPECTRUM_ERROR_NONE;
   case LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE:
     state->block_state.pulse_sequence.index = 0;
@@ -681,12 +682,15 @@ static libspectrum_dword
 rle_pulse_block_length( libspectrum_tape_rle_pulse_block *rle_pulse )
 {
   libspectrum_dword length = 0;
+  libspectrum_qword samples = 0;
   /* RLE pulse data stores each pulse as a single byte if the pulse is no
      longer than 255 samples, and as a zero marker followed by an LSB dword
      otherwise (the same encoding used by rle_pulse_edge()). */
   for( size_t i = 0; i < rle_pulse->length; ) {
     if( rle_pulse->data[ i ] ) {
-      length += rle_pulse->data[ i ] * rle_pulse->scale;
+      samples += rle_pulse->data[ i ];
+      if( !rle_pulse->sample_rate )
+        length += rle_pulse->data[ i ] * rle_pulse->scale;
       i++;
     } else {
       libspectrum_dword value;
@@ -700,11 +704,14 @@ rle_pulse_block_length( libspectrum_tape_rle_pulse_block *rle_pulse )
 	      rle_pulse->data[ i + 2 ] <<  8	|
 	      rle_pulse->data[ i + 3 ] << 16	|
 	      rle_pulse->data[ i + 4 ] << 24;
-      length += value * rle_pulse->scale;
+      samples += value;
+      if( !rle_pulse->sample_rate ) length += value * rle_pulse->scale;
       i += 5;
     }
   }
 
+  if( rle_pulse->sample_rate )
+    return samples * 3500000 / rle_pulse->sample_rate;
   return length;
 }
 

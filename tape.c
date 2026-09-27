@@ -1343,24 +1343,30 @@ rle_pulse_edge( libspectrum_tape_rle_pulse_block *block,
                 libspectrum_tape_rle_pulse_block_state *state,
 		libspectrum_dword *tstates, end_of_block_t *end_of_block )
 {
+  libspectrum_dword samples;
+
   if( block->data[state->index] ) {
-
-    *tstates = block->scale * block->data[ state->index++ ];
-
+    samples = block->data[ state->index++ ];
   } else {
-
     if( state->index + 5 > block->length ) {
       libspectrum_print_error( LIBSPECTRUM_ERROR_LOGIC,
-			       "rle_pulse_edge: file is truncated\n" );
+                               "rle_pulse_edge: file is truncated\n" );
       return LIBSPECTRUM_ERROR_LOGIC;
     }
-
-    *tstates = block->scale * ( block->data[ state->index + 1 ]       |
-			        block->data[ state->index + 2 ] << 8  |
-			        block->data[ state->index + 3 ] << 16 |
-			        block->data[ state->index + 4 ] << 24   );
+    samples = block->data[ state->index + 1 ]       |
+              block->data[ state->index + 2 ] << 8  |
+              block->data[ state->index + 3 ] << 16 |
+              block->data[ state->index + 4 ] << 24;
     state->index += 5;
+  }
 
+  if( block->sample_rate ) {
+    libspectrum_qword total = (libspectrum_qword)samples * 3500000 +
+                              state->remainder;
+    *tstates = total / block->sample_rate;
+    state->remainder = total % block->sample_rate;
+  } else {
+    *tstates = block->scale * samples;
   }
 
   if( state->index == block->length ) *end_of_block = END_OF_BLOCK_NORMAL;

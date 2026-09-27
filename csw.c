@@ -92,8 +92,9 @@ libspectrum_csw_read( libspectrum_tape *tape,
     return LIBSPECTRUM_ERROR_SIGNATURE;
   }
 
+  csw_block->sample_rate = csw_block->scale;
   if (csw_block->scale)
-    csw_block->scale = 3500000 / csw_block->scale; /* approximate CPU speed */
+    csw_block->scale = 3500000 / csw_block->scale; /* legacy scale accessor */
 
   if( csw_block->scale < 0 || csw_block->scale >= 0x80000 ) {
     libspectrum_free( block );
@@ -191,7 +192,9 @@ find_sample_rate( libspectrum_tape *tape )
         break;
       }
 
-      block_rate = 3500000 / scale;
+      block_rate = libspectrum_tape_block_type( block ) ==
+        LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE && block->types.rle_pulse.sample_rate ?
+        block->types.rle_pulse.sample_rate : 3500000 / scale;
 
       if( found ) {
         if( block_rate != sample_rate ) {

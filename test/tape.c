@@ -328,6 +328,60 @@ csw_conversion( void )
   return TEST_PASS;
 }
 
+/* CSW at 44.1 kHz must carry fractional t-states across pulses and retain
+   its header rate when written again. */
+test_return_t
+csw_sample_rate_precision( void )
+{
+  libspectrum_byte input[ 55 ] = { 0 }, *output = NULL;
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape_edge edge;
+  libspectrum_tape_block *block;
+  size_t length = 0;
+  libspectrum_dword rate;
+  const libspectrum_dword expected[] = { 7936, 7937, 7936 };
+  size_t i;
+  test_return_t r = TEST_FAIL;
+
+  if( !tape ) return TEST_INCOMPLETE;
+  memcpy( input, "Compressed Square Wave\x1a", 23 );
+  input[ 23 ] = 2; /* CSW v2 */
+  input[ 25 ] = 0x44; input[ 26 ] = 0xac; /* 44100 Hz */
+  input[ 33 ] = 1; /* uncompressed RLE */
+  input[ 52 ] = input[ 53 ] = input[ 54 ] = 100;
+
+  if( libspectrum_tape_read( tape, input, sizeof( input ),
+                             LIBSPECTRUM_ID_TAPE_CSW, NULL ) ) goto done;
+  block = libspectrum_tape_current_block( tape );
+  if( !block || libspectrum_tape_block_length( block ) != 23809 ) {
+    fprintf( stderr, "%s: CSW 44.1 kHz block duration incorrect\n", progname );
+    goto done;
+  }
+  for( i = 0; i < 3; i++ ) {
+    if( libspectrum_tape_get_next_edge( &edge, tape ) ||
+        edge.tstates != expected[i] ) {
+      fprintf( stderr, "%s: CSW 44.1 kHz edge %lu incorrect\n",
+               progname, (unsigned long)i );
+      goto done;
+    }
+  }
+  if( libspectrum_tape_write( &output, &length, tape,
+                              LIBSPECTRUM_ID_TAPE_CSW ) || length < 29 )
+    goto done;
+  rate = output[ 25 ] | output[ 26 ] << 8 |
+         output[ 27 ] << 16 | output[ 28 ] << 24;
+  if( rate != 44100 ) {
+    fprintf( stderr, "%s: CSW write-back rate %lu, expected 44100\n",
+             progname, (unsigned long)rate );
+    goto done;
+  }
+  r = TEST_PASS;
+done:
+  libspectrum_free( output );
+  libspectrum_tape_free( tape );
+  return r;
+}
+
 /* Test for bug #461: writing a recorded RLE pulse block as CSW crashed. */
 test_return_t
 csw_rle_pulse_conversion( void )

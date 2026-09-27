@@ -53,6 +53,7 @@ test_description tests[] = {
   TEST_ENTRY( no_pilot_pulse_gdb_tzx_file, "No pilot pulse GDB TZX file" ),
   TEST_ENTRY( csw_conversion, "CSW conversion" ),
   TEST_ENTRY( csw_rle_pulse_conversion, "CSW RLE pulse conversion" ),
+  TEST_ENTRY( csw_sample_rate_precision, "CSW 44.1 kHz precision and write-back" ),
   TEST_ENTRY( write_szx_z80r_chunk, "Write SZX Z80R chunk" ),
   TEST_ENTRY( write_szx_spcr_chunk, "Write SZX SPCR chunk" ),
   TEST_ENTRY( write_szx_joy_chunk, "Write SZX JOY chunk" ),

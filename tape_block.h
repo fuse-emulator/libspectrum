@@ -351,6 +351,8 @@ typedef struct libspectrum_tape_rle_pulse_block {
   size_t length;
   libspectrum_byte *data;
   long scale;
+  /* Nonzero for CSW: preserve the exact samples/second. Zero means use scale. */
+  libspectrum_dword sample_rate;
 
 } libspectrum_tape_rle_pulse_block;
 
@@ -359,6 +361,7 @@ typedef struct libspectrum_tape_rle_pulse_block_state {
   /* Private data */
 
   size_t index;
+  libspectrum_dword remainder;
 
 } libspectrum_tape_rle_pulse_block_state;
 
