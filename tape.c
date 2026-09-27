@@ -143,6 +143,10 @@ static libspectrum_error
 jump_blocks( libspectrum_tape *tape, libspectrum_tape_block_state *it,
              int offset );
 
+static void
+do_tail_pause( libspectrum_dword *tstates,
+               end_of_block_t *end_of_block, int *flags );
+
 static libspectrum_error
 rle_pulse_edge( libspectrum_tape_rle_pulse_block *block,
                 libspectrum_tape_rle_pulse_block_state *state,
@@ -520,6 +524,34 @@ libspectrum_tape_get_next_edge_internal( libspectrum_dword *tstates,
     case LIBSPECTRUM_TAPE_BLOCK_CONCAT:
       *tstates = 0; *flags |= LIBSPECTRUM_TAPE_FLAGS_NO_EDGE;
       end_of_block = END_OF_BLOCK_NORMAL;
+      break;
+
+    case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
+      /* The incoming level is already known; forcing it at the first
+         pulse boundary would discard the transition ending that pulse. */
+      it->force_low_level = 0;
+      if( it->block_state.rle_pulse.csw_pause_pending ) {
+        *tstates = block->types.tzx_csw.pause_tstates;
+        do_tail_pause( tstates, &end_of_block, flags );
+        if( *tstates ) *flags |= LIBSPECTRUM_TAPE_FLAGS_LEVEL_LOW;
+      } else if( block->types.tzx_csw.rle.length == 0 ) {
+        it->block_state.rle_pulse.csw_pause_pending = 1;
+        *tstates = 0;
+        *flags |= LIBSPECTRUM_TAPE_FLAGS_NO_EDGE;
+      } else {
+        error = rle_pulse_edge( &block->types.tzx_csw.rle,
+                                &it->block_state.rle_pulse, tstates,
+                                &end_of_block );
+        if( error ) return error;
+        if( end_of_block ) {
+          /* Without a pause, retain the last pulse's level. With one,
+             its end transitions into the opposite-level pause. */
+          end_of_block = END_OF_BLOCK_NONE;
+          if( !block->types.tzx_csw.pause_tstates )
+            *flags |= LIBSPECTRUM_TAPE_FLAGS_NO_EDGE;
+          it->block_state.rle_pulse.csw_pause_pending = 1;
+        }
+      }
       break;
 
     case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
@@ -1693,6 +1725,7 @@ tape_block_description( libspectrum_tape_type type )
   case LIBSPECTRUM_TAPE_BLOCK_ARCHIVE_INFO:     return "Archive Info";
   case LIBSPECTRUM_TAPE_BLOCK_HARDWARE:         return "Hardware Information";
   case LIBSPECTRUM_TAPE_BLOCK_CUSTOM:           return "Custom Info";
+  case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:          return "CSW Recording";
   case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:        return "RLE Pulse";
   case LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE:   return "Pulse Sequence";
   case LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK:       return "Data Block";

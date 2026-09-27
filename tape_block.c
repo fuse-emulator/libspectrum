@@ -104,6 +104,9 @@ libspectrum_tape_block_free( libspectrum_tape_block *block )
   case LIBSPECTRUM_TAPE_BLOCK_RAW_DATA:
     libspectrum_free( block->types.raw_data.data );
     break;
+  case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
+    libspectrum_free( block->types.tzx_csw.rle.data );
+    break;
   case LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA:
     free_symbol_table( &block->types.generalised_data.pilot_table );
     free_symbol_table( &block->types.generalised_data.data_table );
@@ -240,9 +243,11 @@ libspectrum_tape_block_init( libspectrum_tape_block *block,
   case LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA:
     return generalised_data_init( &(block->types.generalised_data),
                                   &(state->block_state.generalised_data) );
+  case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
   case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
     state->block_state.rle_pulse.index = 0;
     state->block_state.rle_pulse.remainder = 0;
+    state->block_state.rle_pulse.csw_pause_pending = 0;
     return LIBSPECTRUM_ERROR_NONE;
   case LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE:
     state->block_state.pulse_sequence.index = 0;
@@ -430,6 +435,7 @@ libspectrum_tape_block_metadata( const libspectrum_tape_block *block )
   case LIBSPECTRUM_TAPE_BLOCK_SELECT:
   case LIBSPECTRUM_TAPE_BLOCK_STOP48:
   case LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL:
+  case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
   case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
   case LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE:
   case LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK:
@@ -818,6 +824,13 @@ libspectrum_tape_block_length( libspectrum_tape_block *block )
     return block->types.pause.length_tstates;
   case LIBSPECTRUM_TAPE_BLOCK_RAW_DATA:
     return raw_data_block_length( &block->types.raw_data );
+  case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
+    {
+      libspectrum_dword length =
+        rle_pulse_block_length( &block->types.tzx_csw.rle );
+      return length == (libspectrum_dword)-1 ? length :
+             length + block->types.tzx_csw.pause_tstates;
+    }
   case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
     return rle_pulse_block_length( &block->types.rle_pulse );
   case LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA:

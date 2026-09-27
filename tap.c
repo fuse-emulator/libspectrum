@@ -176,6 +176,7 @@ internal_tap_write( libspectrum_buffer *buffer, libspectrum_tape *tape,
     case LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA:
     case LIBSPECTRUM_TAPE_BLOCK_LOOP_START:     /* Could do better? */
     case LIBSPECTRUM_TAPE_BLOCK_LOOP_END:
+    case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
     case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
     case LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE:
     case LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK:

@@ -77,6 +77,8 @@ tzx_write_hardware( libspectrum_tape_block *block, libspectrum_buffer* buffer );
 static void
 tzx_write_custom( libspectrum_tape_block *block, libspectrum_buffer* buffer );
 static libspectrum_error
+tzx_write_csw( libspectrum_tape_block *block, libspectrum_buffer *buffer );
+static libspectrum_error
 tzx_write_rle( libspectrum_tape_block *block, libspectrum_buffer* buffer,
                libspectrum_tape *tape,
                libspectrum_tape_iterator iterator );
@@ -201,8 +203,23 @@ internal_tzx_write( libspectrum_buffer* buffer, libspectrum_tape *tape )
       tzx_write_custom( block, buffer );
       break;
 
+    case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
+      error = tzx_write_csw( block, buffer );
+      if( error ) return error;
+      break;
+
     case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
-      error = tzx_write_rle( block, buffer, tape, iterator );
+      if( block->types.rle_pulse.sample_rate ) {
+        /* A CSW file supplied an exact rate and an RLE stream. Keep both
+           instead of converting it to a sampled Direct Recording block. */
+        libspectrum_tape_block csw = { 0 };
+        csw.type = LIBSPECTRUM_TAPE_BLOCK_TZX_CSW;
+        csw.types.tzx_csw.rle = block->types.rle_pulse;
+        csw.types.tzx_csw.compression = 1;
+        error = tzx_write_csw( &csw, buffer );
+      } else {
+        error = tzx_write_rle( block, buffer, tape, iterator );
+      }
       if( error != LIBSPECTRUM_ERROR_NONE ) { return error; }
       break;
 
@@ -676,7 +693,54 @@ write_pulse( libspectrum_dword pulse_length )
   rle_state.level = !rle_state.level;
 }
 
-/* Convert RLE block to a TZX DRB as TZX CSW block support is limited :/ */
+/* Write an actual TZX CSW recording, preserving its rate and pause. */
+static libspectrum_error
+tzx_write_csw( libspectrum_tape_block *block, libspectrum_buffer *buffer )
+{
+  libspectrum_tape_tzx_csw_block *csw = &block->types.tzx_csw;
+  libspectrum_byte *compressed = NULL, *data = csw->rle.data;
+  size_t length = csw->rle.length, i;
+  libspectrum_dword count = 0;
+  libspectrum_byte compression = csw->compression;
+
+  if( !csw->rle.sample_rate || csw->rle.sample_rate > 0xffffff ||
+      (compression != 1 && compression != 2) )
+    return LIBSPECTRUM_ERROR_INVALID;
+  for( i = 0; i < length; ) {
+    if( !data || (data[i] == 0 && length - i < 5) )
+      return LIBSPECTRUM_ERROR_CORRUPT;
+    i += data[i] ? 1 : 5;
+    count++;
+  }
+  if( compression == 2 && !length ) compression = 1;
+  if( compression == 2 ) {
+#ifdef HAVE_ZLIB_H
+    libspectrum_error error = libspectrum_zlib_compress( data, length,
+                                                         &compressed, &length );
+    if( error ) return error;
+    data = compressed;
+#else
+    compression = 1; /* Produce a readable RLE block without zlib. */
+#endif
+  }
+  if( length > 0xffffffffUL - 10 ) {
+    libspectrum_free( compressed );
+    return LIBSPECTRUM_ERROR_INVALID;
+  }
+  libspectrum_buffer_write_byte( buffer, LIBSPECTRUM_TAPE_BLOCK_TZX_CSW );
+  libspectrum_buffer_write_dword( buffer, length + 10 );
+  libspectrum_buffer_write_word( buffer, csw->pause );
+  libspectrum_buffer_write_byte( buffer, csw->rle.sample_rate );
+  libspectrum_buffer_write_byte( buffer, csw->rle.sample_rate >> 8 );
+  libspectrum_buffer_write_byte( buffer, csw->rle.sample_rate >> 16 );
+  libspectrum_buffer_write_byte( buffer, compression );
+  libspectrum_buffer_write_dword( buffer, count );
+  if( length ) libspectrum_buffer_write( buffer, data, length );
+  libspectrum_free( compressed );
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
+/* Convert generic RLE blocks to a TZX direct recording block. */
 static libspectrum_error
 tzx_write_rle( libspectrum_tape_block *block, libspectrum_buffer *buffer,
                libspectrum_tape *tape,

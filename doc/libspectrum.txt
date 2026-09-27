@@ -7,8 +7,8 @@ handles:
 
 * Snapshots: .z80, .szx, .sna (all read/write), .zxs, .sp., .snp and
   +D snapshots (read only).
-* Tape images: .tzx, .tap, .spc, .sta and .ltp (read/write) and
-  .pzx, Warajevo .tap, Z80Em and CSW version 1 (read only). 
+* Tape images: .tzx, .tap, .spc, .sta and .ltp (read/write); CSW v1/v2
+  (read) and v2 (write); .pzx, Warajevo .tap and Z80Em (read only).
 * Input recordings: .rzx (read/write).
 * Disk images: .dsk (both plain and extended), .d40, .d80, .fdi, .img, .mgt,
   .opd, .sad, .scl, .td0, .trd and .udi (identification only).
@@ -1383,6 +1383,7 @@ LIBSPECTRUM_TAPE_BLOCK_PURE_TONE	0x12
 LIBSPECTRUM_TAPE_BLOCK_PULSES		0x13
 LIBSPECTRUM_TAPE_BLOCK_PURE_DATA	0x14
 LIBSPECTRUM_TAPE_BLOCK_RAW_DATA		0x15
+LIBSPECTRUM_TAPE_BLOCK_TZX_CSW		0x18
 
 LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA 0x19
 
@@ -1420,6 +1421,28 @@ LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK       A block of data without pilot or sync
 					specified
 
 These values are defined in the `libspectrum_tape_type' enumeration.
+
+TZX_CSW is the native TZX CSW Recording block (ID 0x18). It retains the
+sample rate, RLE pulse data, pause, compression type (1 = RLE, 2 = Z-RLE),
+and claimed pulse count. In memory the pulse data is always uncompressed
+RLE: reading a Z-RLE block requires zlib. If a caller selects compression
+2 on a block created in memory but zlib is unavailable, writing uses
+compression 1 (uncompressed RLE) instead. CSW pulse data consists
+of one byte per pulse, or a zero byte followed by a little-endian dword
+for a long pulse. The claimed pulse count is available for inspection;
+TZX output writes a count derived from the stored pulse data.
+
+RLE_PULSE remains the generic block for scale-only recordings and for
+standalone CSW files. Loading a standalone CSW retains its exact sample
+rate on that block. Saving it as TZX emits a TZX_CSW block rather than a
+Direct Recording block; a scale-only RLE_PULSE still converts to Direct
+Recording. The standalone CSW initial-polarity flag is represented by a
+Set Signal Level block at the start of the tape when the flag is high.
+TZX CSW has no polarity field: its first pulse inherits the current tape
+level. A zero pause retains the final pulse level; a nonzero pause ends
+at low level. Avoid adding Set Signal Level immediately before a CSW
+block in an existing TZX tape, as this can conceal a boundary edge.
+
 The `concatenation' block (0x5a) is recognised on input, but just
 skipped; hence it will never appear in a libspectrum_tape_block.
 
@@ -1499,8 +1522,17 @@ libspectrum_error
 libspectrum_tape_block_set_<name>( libspectrum_tape_block *block,
 				   size_t index, <type> new_value )
 
+For TZX_CSW, sample_rate gives the exact samples per second, while scale
+is only an integer tstates-per-sample approximation. A zero sample_rate
+on a generic RLE_PULSE means playback instead uses scale. The pause
+accessors are in milliseconds and tstates respectively; when creating
+or changing a TZX_CSW block, set both consistently. Its compression
+accessor selects the format written to TZX, not the in-memory encoding
+(which is always uncompressed RLE). The data pointer belongs to the
+block, as with other tape data accessors.
+
 The parameters, their types, and the LIBSPECTRUM_TAPE_BLOCK_* types
-for which it is relevant are:
+for which they are relevant are:
 
 libspectrum_dword bit_length		RAW_DATA
 
@@ -1527,6 +1559,8 @@ size_t count				PURE_TONE
 libspectrum_byte* data			CUSTOM
 					PURE_DATA
 					RAW_DATA
+					RLE_PULSE
+					TZX_CSW
 					ROM
 					TURBO
 					DATA_BLOCK
@@ -1534,6 +1568,8 @@ libspectrum_byte* data			CUSTOM
 size_t data_length			CUSTOM
 					PURE_DATA
 					RAW_DATA
+					RLE_PULSE
+					TZX_CSW
 					ROM
 					TURBO
 					DATA_BLOCK
@@ -1555,6 +1591,7 @@ libspectrum_dword pause			GENERALISED_DATA
 					RAW_DATA
 					ROM
 					TURBO
+					TZX_CSW
 
 libspectrum_dword pause_tstates		GENERALISED_DATA
 					MESSAGE
@@ -1563,6 +1600,7 @@ libspectrum_dword pause_tstates		GENERALISED_DATA
 					RAW_DATA
 					ROM
 					TURBO
+					TZX_CSW
 
 libspectrum_dword pilot_length		TURBO
 
@@ -1574,6 +1612,16 @@ libspectrum_word pilot_symbols		GENERALISED_DATA
 
 libspectrum_tape_generalised_data_symbol_table
 pilot_table				GENERALISED_DATA
+
+libspectrum_dword scale			RLE_PULSE
+					TZX_CSW
+
+libspectrum_dword sample_rate		RLE_PULSE
+					TZX_CSW
+
+libspectrum_dword csw_pulses		TZX_CSW
+
+libspectrum_byte csw_compression	TZX_CSW
 
 libspectrum_dword pulse_length		LENGTH
 

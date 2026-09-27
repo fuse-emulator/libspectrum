@@ -38,7 +38,7 @@ libspectrum_csw_read( libspectrum_tape *tape,
   libspectrum_tape_block *block = NULL;
   libspectrum_tape_rle_pulse_block *csw_block;
 
-  int compressed;
+  int compressed, initial_high = 0;
 
   size_t signature_length = strlen( csw_signature );
 
@@ -62,6 +62,7 @@ libspectrum_csw_read( libspectrum_tape *tape,
     if( length < 9 ) goto csw_short;
     csw_block->scale = buffer[2] | buffer[3] << 8;
     if( buffer[4] != 1 ) goto csw_bad_compress;
+    initial_high = buffer[5] & 1;
     compressed = 0;
     buffer += 9;
     length -= 9;
@@ -76,6 +77,7 @@ libspectrum_csw_read( libspectrum_tape *tape,
       buffer[4] << 16 |
       buffer[5] << 24;
     compressed = buffer[10] - 1;
+    initial_high = buffer[11] & 1;
 
     if( compressed != 0 && compressed != 1 ) goto csw_bad_compress;
 
@@ -133,7 +135,19 @@ libspectrum_csw_read( libspectrum_tape *tape,
     memcpy( csw_block->data, buffer, length );
   }
 
-  /* Successful completion */
+  /* A standalone CSW has an initial-polarity bit, unlike a TZX CSW block.
+     Represent a high start explicitly so playback and TZX export agree. */
+  if( initial_high ) {
+    libspectrum_tape_block *level =
+      libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL );
+    libspectrum_tape_block_set_level( level, 1 );
+    libspectrum_error error = libspectrum_tape_append_block( tape, level );
+    if( error ) {
+      libspectrum_tape_block_free( level );
+      libspectrum_tape_block_free( block );
+      return error;
+    }
+  }
   return libspectrum_tape_append_block( tape, block );
 
   /* Error returns */
@@ -174,6 +188,7 @@ find_sample_rate( libspectrum_tape *tape )
 
     case LIBSPECTRUM_TAPE_BLOCK_RAW_DATA:
     case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
+    case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
       {
       libspectrum_dword scale, block_rate;
 
@@ -184,7 +199,9 @@ find_sample_rate( libspectrum_tape *tape )
         scale = libspectrum_tape_block_scale( block );
       }
 
-      if( !scale ) {
+      if( !scale && ( libspectrum_tape_block_type( block ) !=
+                      LIBSPECTRUM_TAPE_BLOCK_TZX_CSW ||
+                      !block->types.tzx_csw.rle.sample_rate ) ) {
         libspectrum_print_error(
           LIBSPECTRUM_ERROR_WARNING,
           "find_sample_rate: sampled tape block has zero scale"
@@ -193,7 +210,10 @@ find_sample_rate( libspectrum_tape *tape )
       }
 
       block_rate = libspectrum_tape_block_type( block ) ==
-        LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE && block->types.rle_pulse.sample_rate ?
+        LIBSPECTRUM_TAPE_BLOCK_TZX_CSW ?
+        block->types.tzx_csw.rle.sample_rate :
+        libspectrum_tape_block_type( block ) == LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE &&
+        block->types.rle_pulse.sample_rate ?
         block->types.rle_pulse.sample_rate : 3500000 / scale;
 
       if( found ) {
@@ -223,6 +243,7 @@ find_sample_rate( libspectrum_tape *tape )
     case LIBSPECTRUM_TAPE_BLOCK_LOOP_END:
     case LIBSPECTRUM_TAPE_BLOCK_SELECT:
     case LIBSPECTRUM_TAPE_BLOCK_STOP48:
+    case LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL:
     case LIBSPECTRUM_TAPE_BLOCK_COMMENT:
     case LIBSPECTRUM_TAPE_BLOCK_MESSAGE:
     case LIBSPECTRUM_TAPE_BLOCK_ARCHIVE_INFO:
@@ -313,11 +334,18 @@ libspectrum_csw_write( libspectrum_buffer *new_buffer, libspectrum_tape *tape )
 {
   libspectrum_error error = LIBSPECTRUM_ERROR_NONE;
   libspectrum_dword sample_rate;
+  libspectrum_tape_iterator iterator;
+  libspectrum_tape_block *first;
+  libspectrum_byte initial_high = 0;
 
   libspectrum_buffer* body_buffer = libspectrum_buffer_alloc();
   size_t body_uncompressed_length = 0;
 
   sample_rate = find_sample_rate( tape );
+  first = libspectrum_tape_iterator_init( &iterator, tape );
+  if( first && libspectrum_tape_block_type( first ) ==
+      LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL &&
+      libspectrum_tape_block_level( first ) ) initial_high = 1;
 
   error =
     csw_write_body( body_buffer, tape, sample_rate, &body_uncompressed_length );
@@ -343,8 +371,8 @@ libspectrum_csw_write( libspectrum_buffer *new_buffer, libspectrum_tape *tape )
   libspectrum_buffer_write_byte( new_buffer, 1 ); /* RLE */
 #endif
 
-  /* flags */
-  libspectrum_buffer_write_byte( new_buffer, 0 );		/* No flags */
+  /* CSW v2 initial polarity. */
+  libspectrum_buffer_write_byte( new_buffer, initial_high );
 
   /* header extension length in bytes */
   libspectrum_buffer_write_byte( new_buffer, 0 );		/* No header extension */

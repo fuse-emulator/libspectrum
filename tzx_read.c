@@ -29,6 +29,7 @@
 #include <string.h>
 
 #include "internals.h"
+#include "tape_block.h"
 
 /* The .tzx file signature (first 8 bytes) */
 const char * const libspectrum_tzx_signature = "ZXTape!\x1a";
@@ -53,6 +54,9 @@ tzx_read_pure_data( libspectrum_tape *tape, const libspectrum_byte **ptr,
 static libspectrum_error
 tzx_read_raw_data( libspectrum_tape *tape, const libspectrum_byte **ptr,
 		   const libspectrum_byte *end );
+static libspectrum_error
+tzx_read_csw( libspectrum_tape *tape, const libspectrum_byte **ptr,
+              const libspectrum_byte *end );
 static libspectrum_error
 tzx_read_generalised_data( libspectrum_tape *tape,
 			   const libspectrum_byte **ptr,
@@ -177,6 +181,10 @@ internal_tzx_read( libspectrum_tape *tape, const libspectrum_byte *buffer,
       if( error ) { libspectrum_tape_clear( tape ); return error; }
       break;
 
+    case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
+      error = tzx_read_csw( tape, &ptr, end );
+      if( error ) { libspectrum_tape_clear( tape ); return error; }
+      break;
     case LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA:
       error = tzx_read_generalised_data( tape, &ptr, end );
       if( error ) { libspectrum_tape_clear( tape ); return error; }
@@ -507,6 +515,74 @@ tzx_read_raw_data (libspectrum_tape *tape, const libspectrum_byte **ptr,
   libspectrum_tape_block_set_data( block, data );
 
   /* And return */
+  return libspectrum_tape_append_block( tape, block );
+}
+
+/* TZX 0x18: length (dword), pause (word), rate (24-bit), compression,
+   claimed pulse count (dword), then RLE or zlib-compressed RLE. */
+static libspectrum_error
+tzx_read_csw( libspectrum_tape *tape, const libspectrum_byte **ptr,
+              const libspectrum_byte *end )
+{
+  const libspectrum_byte *p = *ptr;
+  libspectrum_dword size, rate, claimed, actual = 0;
+  libspectrum_word pause;
+  libspectrum_byte compression, *data = NULL;
+  size_t length, i;
+  libspectrum_tape_block *block;
+
+  if( end - p < 4 ) return LIBSPECTRUM_ERROR_CORRUPT;
+  size = p[0] | p[1] << 8 | p[2] << 16 | (libspectrum_dword)p[3] << 24;
+  p += 4;
+  if( size < 10 || (size_t)(end - p) < size )
+    return LIBSPECTRUM_ERROR_CORRUPT;
+  *ptr = p + size;
+  pause = p[0] | p[1] << 8;
+  rate = p[2] | p[3] << 8 | p[4] << 16;
+  compression = p[5];
+  claimed = p[6] | p[7] << 8 | p[8] << 16 | (libspectrum_dword)p[9] << 24;
+  if( !rate || (compression != 1 && compression != 2) )
+    return LIBSPECTRUM_ERROR_CORRUPT;
+  length = size - 10;
+  p += 10;
+  if( compression == 2 ) {
+#ifdef HAVE_ZLIB_H
+    size_t inflated = 0;
+    libspectrum_error error =
+      libspectrum_zlib_inflate( p, length, &data, &inflated );
+    if( error ) return error;
+    length = inflated;
+#else
+    return LIBSPECTRUM_ERROR_UNKNOWN;
+#endif
+  } else if( length ) {
+    data = libspectrum_new( libspectrum_byte, length );
+    memcpy( data, p, length );
+  }
+  for( i = 0; i < length; ) {
+    if( data[i] ) i++;
+    else {
+      if( length - i < 5 ) {
+        libspectrum_free( data );
+        return LIBSPECTRUM_ERROR_CORRUPT;
+      }
+      i += 5;
+    }
+    actual++;
+  }
+  if( actual != claimed )
+    libspectrum_print_error( LIBSPECTRUM_ERROR_WARNING,
+                             "TZX CSW claims %lu pulses, found %lu",
+                             (unsigned long)claimed, (unsigned long)actual );
+  block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_TZX_CSW );
+  block->types.tzx_csw.rle.data = data;
+  block->types.tzx_csw.rle.length = length;
+  block->types.tzx_csw.rle.sample_rate = rate;
+  block->types.tzx_csw.rle.scale = 3500000 / rate;
+  block->types.tzx_csw.pause = pause;
+  block->types.tzx_csw.pause_tstates = libspectrum_ms_to_tstates( pause );
+  block->types.tzx_csw.pulses = claimed;
+  block->types.tzx_csw.compression = compression;
   return libspectrum_tape_append_block( tape, block );
 }
 

@@ -382,6 +382,263 @@ done:
   return r;
 }
 
+/* The last CSW pulse does not generate a spurious edge at its end. */
+test_return_t
+tzx_csw_roundtrip_and_levels( void )
+{
+  static const libspectrum_byte input[] = {
+    'Z','X','T','a','p','e','!',0x1a,1,20,
+    0x2b,1,0,0,0,1, /* start high */
+    0x18,12,0,0,0,0,0,0x44,0xac,0,1,2,0,0,0,1,1,
+    0x12,10,0,1,0 /* next pulse must inherit the final CSW level */
+  };
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape *again = libspectrum_tape_alloc();
+  libspectrum_tape_edge edge;
+  libspectrum_tape_block *block;
+  libspectrum_tape_iterator iterator;
+  libspectrum_byte *output = NULL;
+  size_t length = 0, i, seen = 0;
+  const libspectrum_dword durations[] = { 79, 79, 10 };
+  const libspectrum_tape_signal_level levels[] = { LIBSPECTRUM_TAPE_SIGNAL_LOW,
+                         LIBSPECTRUM_TAPE_SIGNAL_LOW,
+                         LIBSPECTRUM_TAPE_SIGNAL_HIGH };
+  test_return_t r = TEST_FAIL;
+  if( !tape || !again ) { r = TEST_INCOMPLETE; goto done; }
+  if( libspectrum_tape_read( tape, input, sizeof( input ),
+                             LIBSPECTRUM_ID_TAPE_TZX, NULL ) ) goto done;
+  block = libspectrum_tape_iterator_init( &iterator, tape );
+  if( block ) block = libspectrum_tape_iterator_next( &iterator );
+  if( !block || libspectrum_tape_block_type( block ) !=
+      LIBSPECTRUM_TAPE_BLOCK_TZX_CSW ||
+      libspectrum_tape_block_sample_rate( block ) != 44100 ||
+      libspectrum_tape_block_csw_pulses( block ) != 2 ||
+      libspectrum_tape_block_length( block ) != 158 ) goto done;
+  if( libspectrum_tape_write( &output, &length, tape,
+                              LIBSPECTRUM_ID_TAPE_TZX ) ||
+      length != sizeof( input ) || memcmp( input, output, length ) ||
+      libspectrum_tape_read( again, output, length,
+                             LIBSPECTRUM_ID_TAPE_TZX, NULL ) ) goto done;
+  for( i = 0; i < 8 && seen < 3; i++ ) {
+    if( libspectrum_tape_get_next_edge( &edge, again ) ) goto done;
+    if( !edge.tstates ) continue;
+    if( edge.tstates != durations[seen] || edge.level != levels[seen] ||
+        ( seen == 1 && edge.transition != LIBSPECTRUM_TAPE_TRANSITION_NONE ) )
+      goto done;
+    seen++;
+  }
+  if( seen != 3 ) goto done;
+  r = TEST_PASS;
+done:
+  if( r == TEST_FAIL )
+    fprintf( stderr, "%s: TZX CSW round-trip or level continuity failed\n",
+             progname );
+  libspectrum_free( output );
+  if( tape ) libspectrum_tape_free( tape );
+  if( again ) libspectrum_tape_free( again );
+  return r;
+}
+
+/* Z-RLE preserves the pause, and only a nonzero pause forces the next
+   block to start low. */
+test_return_t
+tzx_csw_compressed_pause( void )
+{
+#ifdef HAVE_ZLIB_H
+  static const libspectrum_byte input[] = {
+    'Z','X','T','a','p','e','!',0x1a,1,20,
+    0x2b,1,0,0,0,1,
+    0x18,20,0,0,0,1,0,0x44,0xac,0,2,2,0,0,0,
+    0x78,0x9c,0x63,0x64,0x04,0x00,0x00,0x05,0x00,0x03,
+    0x12,10,0,1,0
+  };
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape *again = libspectrum_tape_alloc();
+  libspectrum_tape_edge edge;
+  libspectrum_tape_iterator it;
+  libspectrum_tape_block *block;
+  libspectrum_byte *output = NULL;
+  size_t length = 0, i, seen = 0;
+  const libspectrum_dword durations[] = { 79, 79, 3500, 10 };
+  const libspectrum_tape_signal_level levels[] = {
+    LIBSPECTRUM_TAPE_SIGNAL_LOW, LIBSPECTRUM_TAPE_SIGNAL_HIGH,
+    LIBSPECTRUM_TAPE_SIGNAL_LOW, LIBSPECTRUM_TAPE_SIGNAL_LOW };
+  test_return_t r = TEST_FAIL;
+  if( !tape || !again ) { r = TEST_INCOMPLETE; goto done; }
+  if( libspectrum_tape_read( tape, input, sizeof( input ),
+                             LIBSPECTRUM_ID_TAPE_TZX, NULL ) ) goto done;
+  block = libspectrum_tape_iterator_init( &it, tape );
+  if( block ) block = libspectrum_tape_iterator_next( &it );
+  if( !block || libspectrum_tape_block_csw_compression( block ) != 2 ||
+      libspectrum_tape_block_pause( block ) != 1 ||
+      libspectrum_tape_block_length( block ) != 3658 ) goto done;
+  if( libspectrum_tape_write( &output, &length, tape,
+                              LIBSPECTRUM_ID_TAPE_TZX ) ||
+      libspectrum_tape_read( again, output, length,
+                             LIBSPECTRUM_ID_TAPE_TZX, NULL ) ) goto done;
+  for( i = 0; i < 9 && seen < 4; i++ ) {
+    if( libspectrum_tape_get_next_edge( &edge, again ) ) goto done;
+    if( !edge.tstates ) continue;
+    if( edge.tstates != durations[seen] || edge.level != levels[seen] ||
+        ( seen == 2 && edge.transition != LIBSPECTRUM_TAPE_TRANSITION_FORCE_LOW ) ||
+        ( seen == 3 && edge.transition != LIBSPECTRUM_TAPE_TRANSITION_FORCE_LOW ) )
+      goto done;
+    seen++;
+  }
+  if( seen != 4 ) goto done;
+  r = TEST_PASS;
+done:
+  if( r == TEST_FAIL )
+    fprintf( stderr, "%s: compressed TZX CSW or pause playback failed\n",
+             progname );
+  libspectrum_free( output );
+  if( tape ) libspectrum_tape_free( tape );
+  if( again ) libspectrum_tape_free( again );
+  return r;
+#else
+  return TEST_PASS;
+#endif
+}
+
+/* With an odd pulse count, the following block inherits the starting level. */
+test_return_t
+tzx_csw_single_pulse_level( void )
+{
+  static const libspectrum_byte input[] = {
+    'Z','X','T','a','p','e','!',0x1a,1,20,
+    0x2b,1,0,0,0,1,
+    0x18,11,0,0,0,0,0,0x44,0xac,0,1,1,0,0,0,1,
+    0x12,10,0,1,0
+  };
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape_edge edge;
+  size_t i, seen = 0;
+  test_return_t r = TEST_FAIL;
+  if( !tape ) return TEST_INCOMPLETE;
+  if( libspectrum_tape_read( tape, input, sizeof( input ),
+                             LIBSPECTRUM_ID_TAPE_TZX, NULL ) ) goto done;
+  for( i = 0; i < 7 && seen < 2; i++ ) {
+    if( libspectrum_tape_get_next_edge( &edge, tape ) ) goto done;
+    if( !edge.tstates ) continue;
+    if( seen == 0 && ( edge.tstates != 79 ||
+         edge.level != LIBSPECTRUM_TAPE_SIGNAL_HIGH ||
+         edge.transition != LIBSPECTRUM_TAPE_TRANSITION_NONE ) ) goto done;
+    if( seen == 1 && ( edge.tstates != 10 ||
+         edge.level != LIBSPECTRUM_TAPE_SIGNAL_LOW ) ) goto done;
+    seen++;
+  }
+  if( seen == 2 ) r = TEST_PASS;
+done:
+  if( r == TEST_FAIL )
+    fprintf( stderr, "%s: single-pulse TZX CSW level failed\n", progname );
+  libspectrum_tape_free( tape );
+  return r;
+}
+
+/* Standalone CSW's exact rate and initial polarity survive TZX export. */
+test_return_t
+csw_to_tzx_csw_with_polarity( void )
+{
+  libspectrum_byte input[54] = { 0 }, *output = NULL, *csw_output = NULL;
+  libspectrum_tape *source = libspectrum_tape_alloc();
+  libspectrum_tape *roundtrip = libspectrum_tape_alloc();
+  libspectrum_tape_iterator iterator;
+  libspectrum_tape_block *block;
+  libspectrum_tape_edge edge;
+  size_t length = 0, csw_length = 0, offset, i;
+  test_return_t r = TEST_FAIL;
+  if( !source || !roundtrip ) { r = TEST_INCOMPLETE; goto done; }
+  memcpy( input, "Compressed Square Wave\x1a", 23 );
+  input[23] = 2;
+  input[25] = 0x44; input[26] = 0xac;
+  input[33] = 1;
+  input[52] = input[53] = 100;
+
+  for( i = 0; i < 2; i++ ) {
+    input[34] = i; /* CSW initial polarity: low, then high. */
+    if( libspectrum_tape_read( source, input, sizeof( input ),
+                               LIBSPECTRUM_ID_TAPE_CSW, NULL ) ||
+        libspectrum_tape_write( &csw_output, &csw_length, source,
+                                LIBSPECTRUM_ID_TAPE_CSW ) ||
+        csw_length < 35 || ( csw_output[34] & 1 ) != i ||
+        libspectrum_tape_write( &output, &length, source,
+                                LIBSPECTRUM_ID_TAPE_TZX ) ) goto done;
+    offset = i ? 16 : 10;
+    if( length != offset + 17 ||
+        ( i && ( output[10] != 0x2b || output[15] != 1 ) ) ||
+        output[offset] != 0x18 || output[offset + 1] != 12 ||
+        output[offset + 7] != 0x44 || output[offset + 8] != 0xac ||
+        output[offset + 10] != 1 || output[offset + 11] != 2 ||
+        output[offset + 15] != 100 || output[offset + 16] != 100 ||
+        libspectrum_tape_read( roundtrip, output, length,
+                               LIBSPECTRUM_ID_TAPE_TZX, NULL ) ) goto done;
+    block = libspectrum_tape_iterator_init( &iterator, roundtrip );
+    if( i ) block = libspectrum_tape_iterator_next( &iterator );
+    if( !block || libspectrum_tape_block_type( block ) !=
+        LIBSPECTRUM_TAPE_BLOCK_TZX_CSW ||
+        libspectrum_tape_block_sample_rate( block ) != 44100 ) goto done;
+    /* Ignore the zero-length set-level event if high. */
+    if( i && libspectrum_tape_get_next_edge( &edge, roundtrip ) ) goto done;
+    if( libspectrum_tape_get_next_edge( &edge, roundtrip ) ) goto done;
+    if( edge.level != ( i ? LIBSPECTRUM_TAPE_SIGNAL_LOW :
+                            LIBSPECTRUM_TAPE_SIGNAL_HIGH ) ) goto done;
+    libspectrum_free( output ); output = NULL; length = 0;
+    libspectrum_free( csw_output ); csw_output = NULL; csw_length = 0;
+    libspectrum_tape_clear( source );
+    libspectrum_tape_clear( roundtrip );
+  }
+  r = TEST_PASS;
+done:
+  if( r == TEST_FAIL )
+    fprintf( stderr, "%s: CSW to TZX conversion lost rate or polarity\n",
+             progname );
+  libspectrum_free( output );
+  libspectrum_free( csw_output );
+  if( source ) libspectrum_tape_free( source );
+  if( roundtrip ) libspectrum_tape_free( roundtrip );
+  return r;
+}
+
+/* A Fuse-style block has only integer tstates/sample; do not invent a
+   sample rate for it by writing a TZX CSW block. */
+test_return_t
+scale_only_rle_to_tzx_direct_recording( void )
+{
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape_block *block =
+    libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE );
+  libspectrum_byte *data = libspectrum_new( libspectrum_byte, 2 );
+  libspectrum_byte *output = NULL;
+  size_t length = 0;
+  test_return_t r = TEST_FAIL;
+  if( !tape || !block || !data ) {
+    r = TEST_INCOMPLETE;
+    libspectrum_free( data );
+    if( block ) libspectrum_tape_block_free( block );
+    goto done;
+  }
+  data[0] = data[1] = 100;
+  libspectrum_tape_block_set_scale( block, 79 );
+  libspectrum_tape_block_set_data_length( block, 2 );
+  libspectrum_tape_block_set_data( block, data );
+  if( libspectrum_tape_append_block( tape, block ) ) {
+    libspectrum_tape_block_free( block );
+    goto done;
+  }
+  if( libspectrum_tape_write( &output, &length, tape,
+                              LIBSPECTRUM_ID_TAPE_TZX ) ||
+      length < 11 || output[10] != LIBSPECTRUM_TAPE_BLOCK_RAW_DATA )
+    goto done;
+  r = TEST_PASS;
+done:
+  if( r == TEST_FAIL )
+    fprintf( stderr, "%s: scale-only RLE did not use Direct Recording\n",
+             progname );
+  libspectrum_free( output );
+  if( tape ) libspectrum_tape_free( tape );
+  return r;
+}
+
 /* Test for bug #461: writing a recorded RLE pulse block as CSW crashed. */
 test_return_t
 csw_rle_pulse_conversion( void )
