@@ -489,6 +489,7 @@ test_return_t tape_block_metadata_metadata_block_returns_one( void );
 test_return_t tape_block_length_pause_block_returns_pause_tstates( void );
 test_return_t tape_block_length_pure_tone_returns_pulses_times_length( void );
 test_return_t tape_block_length_metadata_block_returns_zero( void );
+test_return_t tape_block_length_rle_pulse_uses_long_form_encoding( void );
 
 /* tape-iterator.c: tape_state and tape_set_state */
 test_return_t tape_state_returns_pilot_for_new_rom_block( void );

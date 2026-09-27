@@ -405,6 +405,7 @@ test_description tests[] = {
   TEST_ENTRY( tape_block_length_pause_block_returns_pause_tstates, "libspectrum_tape_block_length: PAUSE block returns stored length_tstates" ),
   TEST_ENTRY( tape_block_length_pure_tone_returns_pulses_times_length, "libspectrum_tape_block_length: PURE_TONE block returns pulses × pulse_length" ),
   TEST_ENTRY( tape_block_length_metadata_block_returns_zero, "libspectrum_tape_block_length: GROUP_START (metadata) block returns 0" ),
+  TEST_ENTRY( tape_block_length_rle_pulse_uses_long_form_encoding, "libspectrum_tape_block_length: RLE_PULSE block honours the long-form pulse encoding" ),
   TEST_ENTRY( tape_state_returns_pilot_for_new_rom_block, "libspectrum_tape_state: returns PILOT for freshly loaded ROM block" ),
   TEST_ENTRY( tape_cursor_advances_applies_and_invalidates, "Tape cursor: advances independently, applies, and detects invalidation" ),
   TEST_ENTRY( tape_cursor_detects_block_mutations, "Tape cursor: detects source block mutations and preserves unrelated cursors" ),

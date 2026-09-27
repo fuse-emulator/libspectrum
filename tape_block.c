@@ -681,10 +681,28 @@ static libspectrum_dword
 rle_pulse_block_length( libspectrum_tape_rle_pulse_block *rle_pulse )
 {
   libspectrum_dword length = 0;
-  size_t i;
+  /* RLE pulse data stores each pulse as a single byte if the pulse is no
+     longer than 255 samples, and as a zero marker followed by an LSB dword
+     otherwise (the same encoding used by rle_pulse_edge()). */
+  for( size_t i = 0; i < rle_pulse->length; ) {
+    if( rle_pulse->data[ i ] ) {
+      length += rle_pulse->data[ i ] * rle_pulse->scale;
+      i++;
+    } else {
+      libspectrum_dword value;
 
-  for( i = 0; i < rle_pulse->length; i++ ) {
-    length += rle_pulse->data[ i ] * rle_pulse->scale;
+      if( rle_pulse->length - i < 5 ) {
+        libspectrum_print_error( LIBSPECTRUM_ERROR_CORRUPT,
+                                 "rle_pulse_block_length: file is truncated\n" );
+        return (libspectrum_dword)-1;
+      }
+      value = rle_pulse->data[ i + 1 ]		|
+	      rle_pulse->data[ i + 2 ] <<  8	|
+	      rle_pulse->data[ i + 3 ] << 16	|
+	      rle_pulse->data[ i + 4 ] << 24;
+      length += value * rle_pulse->scale;
+      i += 5;
+    }
   }
 
   return length;

@@ -2734,6 +2734,69 @@ done:
   return r;
 }
 
+/* tape_block_length: RLE_PULSE block honours the CSW/TZX long-form pulse
+   encoding (zero marker followed by an LSB dword) */
+test_return_t
+tape_block_length_rle_pulse_uses_long_form_encoding( void )
+{
+  libspectrum_tape_block *block =
+    libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE );
+  libspectrum_byte *data;
+  libspectrum_dword got;
+  test_return_t r = TEST_FAIL;
+
+  if( !block ) {
+    fprintf( stderr, "%s: tape_block_length_rle_pulse_uses_long_form_encoding: "
+             "block_alloc returned NULL\n", progname );
+    return TEST_INCOMPLETE;
+  }
+
+  /* Pulse 1: 100 samples (short form). Pulse 2: 300 samples (long form:
+     marker 0x00 followed by the dword 0x0000012c in LSB-first order, the
+     same encoding rle_pulse_edge() plays back). Scale 1 tstate/sample. */
+  data = libspectrum_new( libspectrum_byte, 11 );
+  if( !data ) {
+    fprintf( stderr, "%s: tape_block_length_rle_pulse_uses_long_form_encoding: "
+             "data alloc failed\n", progname );
+    libspectrum_tape_block_free( block );
+    return TEST_INCOMPLETE;
+  }
+  memset( data, 0, 11 );
+  data[ 0 ] = 100;
+  data[ 2 ] = 0x2c; data[ 3 ] = 0x01;
+  /* Third pulse: 0x01000000 samples, exercising the high byte. */
+  data[ 10 ] = 0x01;
+
+  libspectrum_tape_block_set_scale( block, 1 );
+  libspectrum_tape_block_set_data_length( block, 11 );
+  libspectrum_tape_block_set_data( block, data );
+
+  got = libspectrum_tape_block_length( block );
+
+  if( got != 0x01000190 ) {
+    fprintf( stderr, "%s: tape_block_length_rle_pulse_uses_long_form_encoding: "
+             "expected 0x01000190, got %lu\n", progname, (unsigned long)got );
+    goto done;
+  }
+
+  /* A zero marker without all four length bytes must not yield a partial
+     block duration. */
+  libspectrum_tape_block_set_data_length( block, 10 );
+  got = libspectrum_tape_block_length( block );
+  if( got != (libspectrum_dword)-1 ) {
+    fprintf( stderr, "%s: tape_block_length_rle_pulse_uses_long_form_encoding: "
+             "expected error sentinel for truncated pulse, got %lu\n",
+             progname, (unsigned long)got );
+    goto done;
+  }
+
+  r = TEST_PASS;
+
+done:
+  libspectrum_tape_block_free( block );
+  return r;
+}
+
 /* tape_block_length: metadata blocks (GROUP_START) return 0 */
 test_return_t
 tape_block_length_metadata_block_returns_zero( void )
