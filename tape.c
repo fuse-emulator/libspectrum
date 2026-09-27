@@ -1194,9 +1194,14 @@ get_generalised_data_bit( libspectrum_tape_generalised_data_block *block,
   state->current_byte <<= 1;
 
   if( ++state->bits_through_byte == 8 ) {
+    size_t data_count =
+      ( block->bits_per_data_symbol * block->data_table.symbols_in_block + 7 ) / 8;
+
     state->bits_through_byte = 0;
     state->bytes_through_stream++;
-    state->current_byte = block->data[ state->bytes_through_stream ];
+    /* The final symbol may end on a byte boundary. */
+    if( state->bytes_through_stream < data_count )
+      state->current_byte = block->data[ state->bytes_through_stream ];
   }
   
   return r;
