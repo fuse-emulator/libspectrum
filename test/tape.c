@@ -382,6 +382,106 @@ done:
   return r;
 }
 
+/* A Fuse-style RLE pulse block with an exact sample rate (bug #530) keeps
+   the rate through a TZX and CSW round trip and plays back with exact
+   cumulative duration over a substantial number of pulses. */
+test_return_t
+rle_pulse_sample_rate_precision( void )
+{
+  const size_t pulses = 44100, pulse_samples = 100;
+  const libspectrum_dword rate = 44100;
+  /* 44100 pulses of 100 samples: the remainder carry must make the whole
+     stream add up to exactly 4410000 * 3500000 / 44100 t-states */
+  const libspectrum_qword expected_total =
+    (libspectrum_qword)pulses * pulse_samples * 3500000 / rate;
+  static const libspectrum_dword first_edges[] = { 7936, 7937, 7936 };
+  libspectrum_tape_edge edge;
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape *roundtrip = NULL;
+  libspectrum_tape_block *block =
+    libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE );
+  libspectrum_byte *data = libspectrum_new( libspectrum_byte, pulses );
+  libspectrum_byte *output = NULL, *csw_output = NULL;
+  size_t length = 0, csw_length = 0, i, seen = 0;
+  libspectrum_qword total = 0;
+  libspectrum_dword csw_rate;
+  test_return_t r = TEST_FAIL;
+
+  if( !tape || !block || !data ) {
+    r = TEST_INCOMPLETE;
+    libspectrum_free( data );
+    if( block ) libspectrum_tape_block_free( block );
+    goto done;
+  }
+
+  memset( data, pulse_samples, pulses );
+  libspectrum_tape_block_set_scale( block, 3500000 / rate );
+  libspectrum_tape_block_set_sample_rate( block, rate );
+  libspectrum_tape_block_set_data_length( block, pulses );
+  libspectrum_tape_block_set_data( block, data );
+
+  if( libspectrum_tape_append_block( tape, block ) ) {
+    libspectrum_tape_block_free( block );
+    goto done;
+  }
+  data = NULL; /* the appended block owns the data now */
+
+  /* Writing TZX must keep the exact rate: the block becomes a native TZX
+     CSW recording rather than a sampled Direct Recording block */
+  if( libspectrum_tape_write( &output, &length, tape,
+                              LIBSPECTRUM_ID_TAPE_TZX ) ||
+      length < 11 || output[ 10 ] != LIBSPECTRUM_TAPE_BLOCK_TZX_CSW ) {
+    goto done;
+  }
+
+  roundtrip = libspectrum_tape_alloc();
+  if( !roundtrip ||
+      libspectrum_tape_read( roundtrip, output, length,
+                             LIBSPECTRUM_ID_TAPE_TZX, NULL ) ) goto done;
+
+  block = libspectrum_tape_current_block( roundtrip );
+  if( !block || libspectrum_tape_block_type( block ) !=
+        LIBSPECTRUM_TAPE_BLOCK_TZX_CSW ||
+      libspectrum_tape_block_sample_rate( block ) != rate ||
+      libspectrum_tape_block_csw_pulses( block ) != pulses ||
+      libspectrum_tape_block_length( block ) != expected_total ) goto done;
+
+  /* Every edge carries the fractional remainder, so the cumulative
+     playback duration is exact across the whole stream */
+  memset( &edge, 0, sizeof( edge ) );
+  for( i = 0; i < pulses + 8; i++ ) {
+    if( libspectrum_tape_get_next_edge( &edge, roundtrip ) ) goto done;
+    if( edge.flags & LIBSPECTRUM_TAPE_FLAGS_TAPE ) break;
+    if( !edge.tstates ) continue;
+    if( seen < 3 && edge.tstates != first_edges[ seen ] ) goto done;
+    total += edge.tstates;
+    seen++;
+  }
+  if( seen != pulses || total != expected_total ) goto done;
+
+  /* Writing the round-tripped tape back to CSW keeps the exact rate */
+  if( libspectrum_tape_write( &csw_output, &csw_length, roundtrip,
+                              LIBSPECTRUM_ID_TAPE_CSW ) || csw_length < 29 )
+    goto done;
+  csw_rate = csw_output[ 25 ] | csw_output[ 26 ] << 8 |
+             csw_output[ 27 ] << 16 | csw_output[ 28 ] << 24;
+  if( csw_rate != rate ) goto done;
+
+  r = TEST_PASS;
+
+done:
+  if( r == TEST_FAIL )
+    fprintf( stderr,
+             "%s: exact-rate RLE pulse round trip or playback precision failed\n",
+             progname );
+  libspectrum_free( output );
+  libspectrum_free( csw_output );
+  libspectrum_free( data );
+  if( tape ) libspectrum_tape_free( tape );
+  if( roundtrip ) libspectrum_tape_free( roundtrip );
+  return r;
+}
+
 /* The last CSW pulse does not generate a spurious edge at its end. */
 test_return_t
 tzx_csw_roundtrip_and_levels( void )

@@ -54,6 +54,7 @@ test_description tests[] = {
   TEST_ENTRY( csw_conversion, "CSW conversion" ),
   TEST_ENTRY( csw_rle_pulse_conversion, "CSW RLE pulse conversion" ),
   TEST_ENTRY( csw_sample_rate_precision, "CSW 44.1 kHz precision and write-back" ),
+  TEST_ENTRY( rle_pulse_sample_rate_precision, "Exact-rate RLE pulse keeps its rate through TZX/CSW and plays back exactly" ),
   TEST_ENTRY( tzx_csw_roundtrip_and_levels, "TZX CSW round-trip and signal levels" ),
   TEST_ENTRY( tzx_csw_compressed_pause, "TZX Z-RLE CSW and nonzero pause" ),
   TEST_ENTRY( tzx_csw_single_pulse_level, "TZX CSW odd pulse count level" ),

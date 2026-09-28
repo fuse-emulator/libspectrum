@@ -121,6 +121,7 @@ test_return_t no_pilot_pulse_gdb_tzx_file( void );
 test_return_t csw_conversion( void );
 test_return_t csw_rle_pulse_conversion( void );
 test_return_t csw_sample_rate_precision( void );
+test_return_t rle_pulse_sample_rate_precision( void );
 test_return_t tzx_csw_roundtrip_and_levels( void );
 test_return_t tzx_csw_compressed_pause( void );
 test_return_t tzx_csw_single_pulse_level( void );
