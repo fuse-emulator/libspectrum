@@ -527,10 +527,9 @@ libspectrum_tape_get_next_edge_internal( libspectrum_dword *tstates,
       break;
 
     case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
-      /* The incoming level is already known; forcing it at the first
-         pulse boundary would discard the transition ending that pulse. */
-      it->force_low_level = 0;
       if( it->block_state.rle_pulse.csw_pause_pending ) {
+        /* The pause follows the last pulse: zero adds no edge, while a
+           nonzero pause finishes low. */
         *tstates = block->types.tzx_csw.pause_tstates;
         do_tail_pause( tstates, &end_of_block, flags );
         if( *tstates ) *flags |= LIBSPECTRUM_TAPE_FLAGS_LEVEL_LOW;
@@ -539,16 +538,26 @@ libspectrum_tape_get_next_edge_internal( libspectrum_dword *tstates,
         *tstates = 0;
         *flags |= LIBSPECTRUM_TAPE_FLAGS_NO_EDGE;
       } else {
+        int first_pulse = it->block_state.rle_pulse.index == 0;
+
+        /* The incoming low level is already established. Do not
+           override a single pulse's closing edge with FORCE_LOW. */
+        if( first_pulse && it->force_low_level )
+          it->force_low_level = 0;
+
         error = rle_pulse_edge( &block->types.tzx_csw.rle,
                                 &it->block_state.rle_pulse, tstates,
                                 &end_of_block );
         if( error ) return error;
+
+        /* Multi-pulse CSW starts at the incoming level. A sole pulse
+           still needs its closing edge at its actual end, not at a
+           zero-duration end-of-tape event. */
+        if( first_pulse && !end_of_block )
+          *flags |= LIBSPECTRUM_TAPE_FLAGS_NO_EDGE;
+
         if( end_of_block ) {
-          /* Without a pause, retain the last pulse's level. With one,
-             its end transitions into the opposite-level pause. */
           end_of_block = END_OF_BLOCK_NONE;
-          if( !block->types.tzx_csw.pause_tstates )
-            *flags |= LIBSPECTRUM_TAPE_FLAGS_NO_EDGE;
           it->block_state.rle_pulse.csw_pause_pending = 1;
         }
       }

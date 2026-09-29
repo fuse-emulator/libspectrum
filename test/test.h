@@ -125,6 +125,8 @@ test_return_t rle_pulse_sample_rate_precision( void );
 test_return_t tzx_csw_roundtrip_and_levels( void );
 test_return_t tzx_csw_compressed_pause( void );
 test_return_t tzx_csw_single_pulse_level( void );
+test_return_t tzx_csw_final_pulse_edge( void );
+test_return_t tzx_csw_single_final_pulse_edge( void );
 test_return_t csw_to_tzx_csw_with_polarity( void );
 test_return_t scale_only_rle_to_tzx_direct_recording( void );
 test_return_t write_szx_z80r_chunk( void );

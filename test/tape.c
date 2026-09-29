@@ -500,7 +500,8 @@ tzx_csw_roundtrip_and_levels( void )
   libspectrum_byte *output = NULL;
   size_t length = 0, i, seen = 0;
   const libspectrum_dword durations[] = { 79, 79, 10 };
-  const libspectrum_tape_signal_level levels[] = { LIBSPECTRUM_TAPE_SIGNAL_LOW,
+  /* The first pulse keeps the level the 0x2b block set; the second alternates */
+  const libspectrum_tape_signal_level levels[] = { LIBSPECTRUM_TAPE_SIGNAL_HIGH,
                          LIBSPECTRUM_TAPE_SIGNAL_LOW,
                          LIBSPECTRUM_TAPE_SIGNAL_HIGH };
   test_return_t r = TEST_FAIL;
@@ -523,7 +524,7 @@ tzx_csw_roundtrip_and_levels( void )
     if( libspectrum_tape_get_next_edge( &edge, again ) ) goto done;
     if( !edge.tstates ) continue;
     if( edge.tstates != durations[seen] || edge.level != levels[seen] ||
-        ( seen == 1 && edge.transition != LIBSPECTRUM_TAPE_TRANSITION_NONE ) )
+        ( seen == 0 && edge.transition != LIBSPECTRUM_TAPE_TRANSITION_NONE ) )
       goto done;
     seen++;
   }
@@ -560,8 +561,9 @@ tzx_csw_compressed_pause( void )
   libspectrum_byte *output = NULL;
   size_t length = 0, i, seen = 0;
   const libspectrum_dword durations[] = { 79, 79, 3500, 10 };
+  /* The first pulse keeps the level the 0x2b block set; the second alternates */
   const libspectrum_tape_signal_level levels[] = {
-    LIBSPECTRUM_TAPE_SIGNAL_LOW, LIBSPECTRUM_TAPE_SIGNAL_HIGH,
+    LIBSPECTRUM_TAPE_SIGNAL_HIGH, LIBSPECTRUM_TAPE_SIGNAL_LOW,
     LIBSPECTRUM_TAPE_SIGNAL_LOW, LIBSPECTRUM_TAPE_SIGNAL_LOW };
   test_return_t r = TEST_FAIL;
   if( !tape || !again ) { r = TEST_INCOMPLETE; goto done; }
@@ -600,7 +602,7 @@ done:
 #endif
 }
 
-/* With an odd pulse count, the following block inherits the starting level. */
+/* With a single pulse, its closing edge occurs at the pulse's end. */
 test_return_t
 tzx_csw_single_pulse_level( void )
 {
@@ -621,16 +623,89 @@ tzx_csw_single_pulse_level( void )
     if( libspectrum_tape_get_next_edge( &edge, tape ) ) goto done;
     if( !edge.tstates ) continue;
     if( seen == 0 && ( edge.tstates != 79 ||
-         edge.level != LIBSPECTRUM_TAPE_SIGNAL_HIGH ||
-         edge.transition != LIBSPECTRUM_TAPE_TRANSITION_NONE ) ) goto done;
+         edge.level != LIBSPECTRUM_TAPE_SIGNAL_LOW ||
+         edge.transition != LIBSPECTRUM_TAPE_TRANSITION_TOGGLE ) ) goto done;
     if( seen == 1 && ( edge.tstates != 10 ||
-         edge.level != LIBSPECTRUM_TAPE_SIGNAL_LOW ) ) goto done;
+         edge.level != LIBSPECTRUM_TAPE_SIGNAL_HIGH ) ) goto done;
     seen++;
   }
   if( seen == 2 ) r = TEST_PASS;
 done:
   if( r == TEST_FAIL )
     fprintf( stderr, "%s: single-pulse TZX CSW level failed\n", progname );
+  libspectrum_tape_free( tape );
+  return r;
+}
+
+/* A pause-free CSW closes its last pulse at the recorded duration. */
+test_return_t
+tzx_csw_final_pulse_edge( void )
+{
+  static const libspectrum_byte input[] = {
+    'Z','X','T','a','p','e','!',0x1a,1,20,
+    0x18,12,0,0,0,0,0,0x44,0xac,0,1,2,0,0,0,1,1,
+    0x12,10,0,1,0
+  };
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape_edge edge;
+  size_t i;
+  test_return_t r = TEST_FAIL;
+  if( !tape ) return TEST_INCOMPLETE;
+  if( libspectrum_tape_read( tape, input, sizeof( input ),
+                             LIBSPECTRUM_ID_TAPE_TZX, NULL ) ) goto done;
+  for( i = 0; i < 4; i++ ) {
+    if( libspectrum_tape_get_next_edge( &edge, tape ) ) goto done;
+    if( i < 2 && edge.tstates != 79 ) goto done;
+    if( i == 0 && ( edge.level != LIBSPECTRUM_TAPE_SIGNAL_LOW ||
+                    edge.transition != LIBSPECTRUM_TAPE_TRANSITION_NONE ) )
+      goto done;
+    if( i == 1 && ( edge.level != LIBSPECTRUM_TAPE_SIGNAL_HIGH ||
+                    edge.transition != LIBSPECTRUM_TAPE_TRANSITION_TOGGLE ) )
+      goto done;
+    if( i == 2 && ( edge.tstates != 0 ||
+                    edge.transition != LIBSPECTRUM_TAPE_TRANSITION_NONE ) )
+      goto done;
+    if( i == 3 && ( edge.tstates != 10 ||
+                    edge.level != LIBSPECTRUM_TAPE_SIGNAL_LOW ) ) goto done;
+  }
+  r = TEST_PASS;
+done:
+  if( r == TEST_FAIL )
+    fprintf( stderr, "%s: pause-free CSW lost its closing edge\n", progname );
+  libspectrum_tape_free( tape );
+  return r;
+}
+
+/* A sole CSW pulse must close at its own end, not at a terminal zero event. */
+test_return_t
+tzx_csw_single_final_pulse_edge( void )
+{
+  static libspectrum_byte input[] = {
+    'Z','X','T','a','p','e','!',0x1a,1,20,
+    0x2b,1,0,0,0,0,
+    0x18,11,0,0,0,0,0,0x44,0xac,0,1,1,0,0,0,1
+  };
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape_edge edge;
+  size_t i;
+  test_return_t r = TEST_FAIL;
+  if( !tape ) return TEST_INCOMPLETE;
+  for( i = 0; i < 2; i++ ) {
+    input[15] = i;
+    if( libspectrum_tape_read( tape, input, sizeof( input ),
+                               LIBSPECTRUM_ID_TAPE_TZX, NULL ) ||
+        libspectrum_tape_get_next_edge( &edge, tape ) ||
+        libspectrum_tape_get_next_edge( &edge, tape ) ||
+        edge.tstates != 79 ||
+        edge.level != ( i ? LIBSPECTRUM_TAPE_SIGNAL_LOW :
+                             LIBSPECTRUM_TAPE_SIGNAL_HIGH ) ||
+        edge.transition != LIBSPECTRUM_TAPE_TRANSITION_TOGGLE ) goto done;
+    libspectrum_tape_clear( tape );
+  }
+  r = TEST_PASS;
+done:
+  if( r == TEST_FAIL )
+    fprintf( stderr, "%s: single CSW pulse lost its closing edge\n", progname );
   libspectrum_tape_free( tape );
   return r;
 }
@@ -680,8 +755,9 @@ csw_to_tzx_csw_with_polarity( void )
     /* Ignore the zero-length set-level event if high. */
     if( i && libspectrum_tape_get_next_edge( &edge, roundtrip ) ) goto done;
     if( libspectrum_tape_get_next_edge( &edge, roundtrip ) ) goto done;
-    if( edge.level != ( i ? LIBSPECTRUM_TAPE_SIGNAL_LOW :
-                            LIBSPECTRUM_TAPE_SIGNAL_HIGH ) ) goto done;
+    /* The conversion plays the first pulse at the CSW file's own polarity */
+    if( edge.level != ( i ? LIBSPECTRUM_TAPE_SIGNAL_HIGH :
+                            LIBSPECTRUM_TAPE_SIGNAL_LOW ) ) goto done;
     libspectrum_free( output ); output = NULL; length = 0;
     libspectrum_free( csw_output ); csw_output = NULL; csw_length = 0;
     libspectrum_tape_clear( source );

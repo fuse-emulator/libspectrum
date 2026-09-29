@@ -1439,9 +1439,10 @@ Direct Recording block; a scale-only RLE_PULSE still converts to Direct
 Recording. The standalone CSW initial-polarity flag is represented by a
 Set Signal Level block at the start of the tape when the flag is high.
 TZX CSW has no polarity field: its first pulse inherits the current tape
-level. A zero pause retains the final pulse level; a nonzero pause ends
-at low level. Avoid adding Set Signal Level immediately before a CSW
-block in an existing TZX tape, as this can conceal a boundary edge.
+level. A zero pause adds no edge or level change of its own (the final
+pulse's boundary edge is still played); a nonzero pause ends low.
+Avoid adding Set Signal Level immediately before a CSW block in an existing
+TZX tape, as this can conceal a boundary edge.
 
 The `concatenation' block (0x5a) is recognised on input, but just
 skipped; hence it will never appear in a libspectrum_tape_block.
