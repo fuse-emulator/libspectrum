@@ -359,6 +359,9 @@ AM_CONDITIONAL([WAV_INTERNAL_AUDIOFILE],
 AM_CONDITIONAL([WAV_INTERNAL_MACOS],
                [test "$selected_wav_backend" = macos])
 
+AM_CONDITIONAL([BUILD_TEST_ARCHIVE],
+               [test "x$enable_static" != "xyes"])
+
 AC_CONFIG_FILES([
   Makefile
   libspectrum.qpg

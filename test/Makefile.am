@@ -74,7 +74,17 @@ test/wav-mono-threshold.wav: test/wav-fixtures.pl
 test/wav-stereo-mixdown.wav: test/wav-fixtures.pl
 	$(AM_V_GEN)$(PERL) $< stereo-mixdown > $@.tmp && mv $@.tmp $@
 
+if BUILD_TEST_ARCHIVE
+libspectrum-test.a: libspectrum.la
+	$(AM_V_at)$(AR) crs $@ .libs/*.o
+test_test_DEPENDENCIES += libspectrum-test.a
+test_test_LDADD = libspectrum-test.a $(libspectrum_la_LIBADD)
+noinst_DATA += libspectrum-test.a
+CLEANFILES += libspectrum-test.a
+else
 test_test_LDADD = libspectrum.la
+endif
+
 test_test_LDFLAGS = -static
 
 EXTRA_DIST += \
