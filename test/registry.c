@@ -300,6 +300,7 @@ test_description tests[] = {
   TEST_ENTRY( snap_out_plus3_memoryport_and_scld_hsr_dec_getter_setter, "Snap out_plus3_memoryport, out_scld_hsr, and out_scld_dec getter/setter" ),
   TEST_ENTRY( snap_zxcf_active_upload_memctl_and_pages_getter_setter, "Snap ZXCF active, upload, memctl, and pages getter/setter" ),
   TEST_ENTRY( snap_zxcf_ram_page_pointer_array_getter_setter, "Snap ZXCF RAM page pointer array getter/setter" ),
+  TEST_ENTRY( pzx_large_payload_bounds, "PZX payloads over 255 bytes and truncated/oversized counts" ),
   TEST_ENTRY( tape_dword_high_bit_callers, "Tape dword callers: Warajevo and high-bit CSW/RLE values" ),
   TEST_ENTRY( mmc_high_bit_command_arguments, "MMC commands reject high-bit sector arguments" ),
   TEST_ENTRY( utilities_dword_decoders, "Dword decoders: endian order, high bits and pointer advancement" ),

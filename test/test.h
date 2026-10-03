@@ -358,6 +358,7 @@ test_return_t snap_zxcf_ram_page_pointer_array_getter_setter( void );
 /* utilities.c */
 test_return_t utilities_dword_decoders( void );
 test_return_t tape_dword_high_bit_callers( void );
+test_return_t pzx_large_payload_bounds( void );
 test_return_t mmc_high_bit_command_arguments( void );
 test_return_t utilities_zx_string_to_utf8_null_source_is_invalid( void );
 test_return_t utilities_zx_string_to_utf8_plain_ascii( void );

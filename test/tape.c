@@ -1,11 +1,58 @@
 #include "config.h"
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "internals.h"
 #include "common.h"
 #include "test.h"
+
+test_return_t
+pzx_large_payload_bounds( void )
+{
+  libspectrum_byte input[286] = { 0 };
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape_block *block;
+  test_return_t r = TEST_FAIL;
+  size_t i;
+
+  if( !tape ) return TEST_INCOMPLETE;
+  memcpy( input, "PZXT\x02\0\0\0\x01\0DATA", 14 );
+  /* 268-byte DATA body: metadata, two pulses, 256 payload bytes. */
+  input[14] = 12; input[15] = 1;
+  input[19] = 8; input[21] = 0x80; /* 2048 bits, initial high */
+  input[24] = input[25] = 1;
+  input[26] = 100; input[28] = 200;
+  memset( input + 30, 0xa5, 256 );
+  if( libspectrum_tape_read( tape, input, sizeof( input ),
+                             LIBSPECTRUM_ID_TAPE_PZX, NULL ) ) goto done;
+  block = libspectrum_tape_current_block( tape );
+  if( !block || libspectrum_tape_block_data_length( block ) != 256 ||
+      libspectrum_tape_block_count( block ) != 2048 ||
+      libspectrum_tape_block_level( block ) != 1 ) goto done;
+  for( i = 0; i < 256; i++ )
+    if( libspectrum_tape_block_data( block )[i] != 0xa5 ) goto done;
+  if( libspectrum_tape_clear( tape ) ) goto done;
+
+  /* Keep the chunk length consistent so the payload helper rejects it. */
+  input[14] = 11;
+  if( libspectrum_tape_read( tape, input, sizeof( input ) - 1,
+                             LIBSPECTRUM_ID_TAPE_PZX, NULL ) !=
+      LIBSPECTRUM_ERROR_CORRUPT ) goto done;
+  if( libspectrum_tape_clear( tape ) ) goto done;
+  input[14] = 12;
+  memset( input + 18, 0xff, 4 ); /* Maximum bit count, tiny payload */
+  if( libspectrum_tape_read( tape, input, sizeof( input ),
+                             LIBSPECTRUM_ID_TAPE_PZX, NULL ) !=
+      LIBSPECTRUM_ERROR_CORRUPT ) goto done;
+  r = TEST_PASS;
+done:
+  if( r == TEST_FAIL )
+    fprintf( stderr, "%s: PZX payload bounds mismatch\n", progname );
+  libspectrum_tape_free( tape );
+  return r;
+}
 
 test_return_t
 tape_dword_high_bit_callers( void )
@@ -417,8 +464,8 @@ csw_sample_rate_precision( void )
     goto done;
   rate = libspectrum_read_dword_le( output + 25 );
   if( rate != 44100 ) {
-    fprintf( stderr, "%s: CSW write-back rate %lu, expected 44100\n",
-             progname, (unsigned long)rate );
+    fprintf( stderr, "%s: CSW write-back rate %" PRIu32 ", expected 44100\n",
+             progname, rate );
     goto done;
   }
   r = TEST_PASS;
@@ -893,8 +940,8 @@ csw_rle_pulse_conversion( void )
 
   sample_rate = libspectrum_read_dword_le( buffer + 25 );
   if( sample_rate != 3500000 / 79 ) {
-    fprintf( stderr, "%s: CSW sample rate was %lu, expected %lu\n", progname,
-             (unsigned long)sample_rate, (unsigned long)( 3500000 / 79 ) );
+    fprintf( stderr, "%s: CSW sample rate was %" PRIu32 ", expected %d\n",
+             progname, sample_rate, 3500000 / 79 );
     goto done;
   }
 

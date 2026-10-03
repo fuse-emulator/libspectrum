@@ -129,8 +129,7 @@ utilities_dword_decoders( void )
     if( libspectrum_read_dword_le( ptr ) != value ||
         libspectrum_read_dword_be( be + 1 ) != value ||
         libspectrum_read_dword( &ptr ) != value || ptr != le + 5 ) {
-      fprintf( stderr, "%s: dword decoder mismatch at %lu\n", progname,
-               (unsigned long)i );
+      fprintf( stderr, "%s: dword decoder mismatch at %zu\n", progname, i );
       return TEST_FAIL;
     }
   }
