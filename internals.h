@@ -114,6 +114,26 @@ libspectrum_print_error( libspectrum_error error, const char *format, ... )
 void libspectrum_make_room( libspectrum_byte **dest, size_t requested,
 			    libspectrum_byte **ptr, size_t *allocated );
 
+/* Decode four bytes without advancing the pointer. The caller must ensure
+   that all four bytes are available. */
+static inline libspectrum_dword
+libspectrum_read_dword_le( const libspectrum_byte *buffer )
+{
+  return  (libspectrum_dword)buffer[0]        |
+         ((libspectrum_dword)buffer[1] <<  8) |
+         ((libspectrum_dword)buffer[2] << 16) |
+         ((libspectrum_dword)buffer[3] << 24);
+}
+
+static inline libspectrum_dword
+libspectrum_read_dword_be( const libspectrum_byte *buffer )
+{
+  return ((libspectrum_dword)buffer[0] << 24) |
+         ((libspectrum_dword)buffer[1] << 16) |
+         ((libspectrum_dword)buffer[2] <<  8) |
+          (libspectrum_dword)buffer[3];
+}
+
 /* Read and write (d)words */
 libspectrum_word libspectrum_read_word( const libspectrum_byte **buffer );
 libspectrum_dword libspectrum_read_dword( const libspectrum_byte **buffer );

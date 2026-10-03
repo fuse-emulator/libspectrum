@@ -1394,10 +1394,7 @@ rle_pulse_edge( libspectrum_tape_rle_pulse_block *block,
                                "rle_pulse_edge: file is truncated\n" );
       return LIBSPECTRUM_ERROR_LOGIC;
     }
-    samples = block->data[ state->index + 1 ]       |
-              block->data[ state->index + 2 ] << 8  |
-              block->data[ state->index + 3 ] << 16 |
-              block->data[ state->index + 4 ] << 24;
+    samples = libspectrum_read_dword_le( block->data + state->index + 1 );
     state->index += 5;
   }
 

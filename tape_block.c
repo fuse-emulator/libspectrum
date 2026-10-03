@@ -706,10 +706,7 @@ rle_pulse_block_length( libspectrum_tape_rle_pulse_block *rle_pulse )
                                  "rle_pulse_block_length: file is truncated\n" );
         return (libspectrum_dword)-1;
       }
-      value = rle_pulse->data[ i + 1 ]		|
-	      rle_pulse->data[ i + 2 ] <<  8	|
-	      rle_pulse->data[ i + 3 ] << 16	|
-	      rle_pulse->data[ i + 4 ] << 24;
+      value = libspectrum_read_dword_le( rle_pulse->data + i + 1 );
       samples += value;
       if( !rle_pulse->sample_rate ) length += value * rle_pulse->scale;
       i += 5;

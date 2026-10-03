@@ -532,7 +532,7 @@ tzx_read_csw( libspectrum_tape *tape, const libspectrum_byte **ptr,
   libspectrum_tape_block *block;
 
   if( end - p < 4 ) return LIBSPECTRUM_ERROR_CORRUPT;
-  size = p[0] | p[1] << 8 | p[2] << 16 | (libspectrum_dword)p[3] << 24;
+  size = libspectrum_read_dword_le( p );
   p += 4;
   if( size < 10 || (size_t)(end - p) < size )
     return LIBSPECTRUM_ERROR_CORRUPT;
@@ -540,7 +540,7 @@ tzx_read_csw( libspectrum_tape *tape, const libspectrum_byte **ptr,
   pause = p[0] | p[1] << 8;
   rate = p[2] | p[3] << 8 | p[4] << 16;
   compression = p[5];
-  claimed = p[6] | p[7] << 8 | p[8] << 16 | (libspectrum_dword)p[9] << 24;
+  claimed = libspectrum_read_dword_le( p + 6 );
   if( !rate || (compression != 1 && compression != 2) )
     return LIBSPECTRUM_ERROR_CORRUPT;
   length = size - 10;

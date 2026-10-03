@@ -8,6 +8,53 @@
 #include "test.h"
 
 test_return_t
+tape_dword_high_bit_callers( void )
+{
+  libspectrum_byte csw[57] = { 0 };
+  /* One uncompressed sample block followed by the EOF block. */
+  static const libspectrum_byte warajevo[] = {
+    12,0,0,0, 30,0,0,0, 255,255,255,255,
+    255,255,255,255, 30,0,0,0, 254,255,0, 1,0,1,0,0,0, 0xaa,
+    12,0,0,0, 255,255,255,255
+  };
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape_block *block;
+  libspectrum_tape_edge edge;
+  test_return_t r = TEST_FAIL;
+
+  if( !tape ) return TEST_INCOMPLETE;
+  if( libspectrum_tape_read( tape, warajevo, sizeof( warajevo ),
+                             LIBSPECTRUM_ID_TAPE_WARAJEVO, NULL ) ) goto done;
+  block = libspectrum_tape_current_block( tape );
+  if( !block || libspectrum_tape_block_type( block ) !=
+      LIBSPECTRUM_TAPE_BLOCK_RAW_DATA ||
+      libspectrum_tape_block_data_length( block ) != 1 ||
+      libspectrum_tape_block_data( block )[0] != 0xaa ) goto done;
+  libspectrum_tape_clear( tape );
+
+  memcpy( csw, "Compressed Square Wave\x1a", 23 );
+  csw[23] = 2;
+  /* Rate and extended pulse length both 0x80000001: exactly one second.
+     Literal bytes keep the expected value independent of the decoder. */
+  csw[25] = 1; csw[28] = 0x80;
+  csw[33] = 1;
+  csw[53] = 1; csw[56] = 0x80;
+  if( libspectrum_tape_read( tape, csw, sizeof( csw ),
+                             LIBSPECTRUM_ID_TAPE_CSW, NULL ) ) goto done;
+  block = libspectrum_tape_current_block( tape );
+  if( !block || libspectrum_tape_block_sample_rate( block ) != 0x80000001 ||
+      libspectrum_tape_block_length( block ) != 3500000 ||
+      libspectrum_tape_get_next_edge( &edge, tape ) ||
+      edge.tstates != 3500000 ) goto done;
+  r = TEST_PASS;
+done:
+  if( r == TEST_FAIL )
+    fprintf( stderr, "%s: high-bit tape dword caller mismatch\n", progname );
+  libspectrum_tape_free( tape );
+  return r;
+}
+
+test_return_t
 tape_with_unknown_block( void )
 {
   return read_tape( STATIC_TEST_PATH( "invalid.tzx" ), LIBSPECTRUM_ERROR_UNKNOWN );
@@ -368,8 +415,7 @@ csw_sample_rate_precision( void )
   if( libspectrum_tape_write( &output, &length, tape,
                               LIBSPECTRUM_ID_TAPE_CSW ) || length < 29 )
     goto done;
-  rate = output[ 25 ] | output[ 26 ] << 8 |
-         output[ 27 ] << 16 | output[ 28 ] << 24;
+  rate = libspectrum_read_dword_le( output + 25 );
   if( rate != 44100 ) {
     fprintf( stderr, "%s: CSW write-back rate %lu, expected 44100\n",
              progname, (unsigned long)rate );
@@ -463,8 +509,7 @@ rle_pulse_sample_rate_precision( void )
   if( libspectrum_tape_write( &csw_output, &csw_length, roundtrip,
                               LIBSPECTRUM_ID_TAPE_CSW ) || csw_length < 29 )
     goto done;
-  csw_rate = csw_output[ 25 ] | csw_output[ 26 ] << 8 |
-             csw_output[ 27 ] << 16 | csw_output[ 28 ] << 24;
+  csw_rate = libspectrum_read_dword_le( csw_output + 25 );
   if( csw_rate != rate ) goto done;
 
   r = TEST_PASS;
@@ -846,8 +891,7 @@ csw_rle_pulse_conversion( void )
     goto done;
   }
 
-  sample_rate = buffer[ 25 ] | ( buffer[ 26 ] << 8 ) |
-                ( buffer[ 27 ] << 16 ) | ( buffer[ 28 ] << 24 );
+  sample_rate = libspectrum_read_dword_le( buffer + 25 );
   if( sample_rate != 3500000 / 79 ) {
     fprintf( stderr, "%s: CSW sample rate was %lu, expected %lu\n", progname,
              (unsigned long)sample_rate, (unsigned long)( 3500000 / 79 ) );

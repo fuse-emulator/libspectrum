@@ -939,10 +939,7 @@ libspectrum_read_dword( const libspectrum_byte **buffer )
 {
   libspectrum_dword value;
 
-  value = (*buffer)[0]             +
-          (*buffer)[1] *     0x100 +
-	  (*buffer)[2] *   0x10000 +
-          (*buffer)[3] * 0x1000000 ;
+  value = libspectrum_read_dword_le( *buffer );
 
   (*buffer) += 4;
 

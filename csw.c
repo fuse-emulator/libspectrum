@@ -71,11 +71,7 @@ libspectrum_csw_read( libspectrum_tape *tape,
   case 2:
     if( length < 29 ) goto csw_short;
 
-    csw_block->scale =
-      buffer[2]       |
-      buffer[3] <<  8 |
-      buffer[4] << 16 |
-      buffer[5] << 24;
+    csw_block->scale = libspectrum_read_dword_le( buffer + 2 );
     compressed = buffer[10] - 1;
     initial_high = buffer[11] & 1;
 
