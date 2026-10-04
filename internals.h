@@ -190,7 +190,7 @@ libspectrum_write_snap_page( libspectrum_buffer *buffer,
                              libspectrum_snap *snap, int page );
 
 /* Sizes of some of the arrays in the snap structure */
-#define SNAPSHOT_RAM_PAGES 16
+#define SNAPSHOT_RAM_PAGES 64
 #define SNAPSHOT_SLT_PAGES 256
 #define SNAPSHOT_ZXATASP_PAGES 32
 #define SNAPSHOT_ZXCF_PAGES 64
