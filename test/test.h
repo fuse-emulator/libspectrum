@@ -293,7 +293,12 @@ test_return_t tape_pure_data_block_bit0_length_bit1_length_bits_in_last_byte_pau
 test_return_t tape_pause_block_pause_length_and_level_getter_setter( void );
 test_return_t tape_rom_block_data_data_length_and_pause_getter_setter( void );
 test_return_t tzx_write_preserves_pzx_style_initial_pulse_levels( void );
-test_return_t tzx_pulse_sequence_over_255_splits_into_multiple_pulses_blocks( void );
+test_return_t tzx_pzx_gdb_holds_and_zero_pulses( void );
+test_return_t tzx_pzx_gdb_repeat_splitting( void );
+test_return_t tzx_pzx_gdb_compact_data_and_empty_sequences( void );
+test_return_t tzx_pzx_metadata_limits( void );
+test_return_t tzx_pzx_gdb_alphabet_splitting( void );
+test_return_t tzx_pzx_gdb_control_boundaries( void );
 test_return_t tape_pause_tstates_getter_setter_across_block_types( void );
 test_return_t tape_rle_pulse_block_scale_data_and_data_length_getter_setter( void );
 test_return_t tape_pulses_block_count_and_pulse_lengths_getter_setter( void );

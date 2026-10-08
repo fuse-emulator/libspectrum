@@ -349,6 +349,10 @@ libspectrum_tape_write( libspectrum_byte **buffer, size_t *length,
 
   case LIBSPECTRUM_ID_TAPE_TZX:
     error = internal_tzx_write( new_buffer, tape );
+    if( error ) {
+      libspectrum_buffer_free( new_buffer );
+      return error;
+    }
     break;
 
   case LIBSPECTRUM_ID_TAPE_PZX:
@@ -1334,12 +1338,16 @@ generalised_data_edge( libspectrum_tape_generalised_data_block *block,
       if( ++state->symbols_through_run == block->pilot_repeats[ state->run ] ) {
 	state->symbols_through_run = 0;
 	if( ++state->run == table->symbols_in_block ) {
-	  state->state = LIBSPECTRUM_TAPE_STATE_DATA1;
-	  state->bits_through_byte = 0;
-	  state->bytes_through_stream = 0;
-	  state->symbols_through_stream = 0;
-	  state->current_byte = block->data[ 0 ];
-	  state->current_symbol = get_generalised_data_symbol( block, state );
+          if( block->data_table.symbols_in_block ) {
+	    state->state = LIBSPECTRUM_TAPE_STATE_DATA1;
+	    state->bits_through_byte = 0;
+	    state->bytes_through_stream = 0;
+	    state->symbols_through_stream = 0;
+	    state->current_byte = block->data[ 0 ];
+	    state->current_symbol = get_generalised_data_symbol( block, state );
+          } else {
+            state->state = LIBSPECTRUM_TAPE_STATE_PAUSE;
+          }
 	}
       }
     }

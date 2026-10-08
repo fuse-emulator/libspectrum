@@ -1196,6 +1196,23 @@ blocks are not converted; they are rejected rather than silently dropped.
 Unknown PZX blocks/keys already discarded or normalised by the reader
 cannot be reconstructed by the writer.
 
+When writing TZX, PZX-style PULSE_SEQUENCE and DATA_BLOCK blocks, and
+PAUSE blocks with explicit levels, use Generalised Data Blocks (ID 0x19).
+Symbol flags carry polarity directly; no automatic Set Signal Level or CSW
+blocks are needed. Long holds use 16-bit pieces with continuation symbols.
+Symbol repetitions are split at 65535, and alphabets exceeding 256 symbols
+start another GDB without resetting the waveform. Zero-duration PZX pulses
+are normalised into empty symbols that carry their net level change, rather
+than inserted into a GDB pulse sequence where zero denotes its terminator.
+DATA with nonzero bit pulse sequences uses four symbols (bit value and
+starting level) and a packed two-bit symbol stream. Other DATA encodings
+use the general waveform path. Tails preserve their exact duration and level.
+Browse and stop commands remain between the corresponding waveform blocks;
+zero-duration PAUSE still means unconditional stop. TZX-origin blocks keep
+their existing conversion paths. Unrepresentable waveform values or TZX
+metadata lengths return an error instead of truncating fields. Failed TZX
+writing does not expose partial output or move the caller's playback position.
+
 libspectrum_error
 libspectrum_tape_get_next_edge( libspectrum_tape_edge *edge,
                                 libspectrum_tape *tape )

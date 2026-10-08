@@ -59,6 +59,7 @@ libspectrum_la_SOURCES = bzip2.c \
 		 	 timings.c \
 			 tzx_read.c \
 			 tzx_write.c \
+			 tzx_pzx.c \
 			 utilities.c \
 			 warajevo_read.c \
 			 windres.rc \

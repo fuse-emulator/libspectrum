@@ -281,9 +281,8 @@ pzx_write_validation_matrix( void )
     case 6: libspectrum_tape_block_set_count( b, 0 ); break;
     case 7:
       libspectrum_tape_block_free( b ); b = pulses_block( 100, 0 ); break;
-    case 8: { /* Replace owned arrays rather than pass a scalar to a setter. */
+    case 8:
       libspectrum_tape_block_free( b ); b = pulses_block( 0x80000000U, 1 ); break;
-    }
     case 9: libspectrum_set_pause_tstates( b, 0x80000000U ); break;
     case 10: libspectrum_tape_block_set_level( b, -2 ); break;
     case 11: libspectrum_tape_block_set_level( b, 2 ); break;
@@ -306,6 +305,10 @@ pzx_write_validation_matrix( void )
     if( i < 13 ) {
       /* An explicit-level pause is PZX-style; unspecified pauses are legacy. */
       if( i == 9 ) libspectrum_tape_block_set_level( b, 0 );
+      if( !rejected_format( tape, LIBSPECTRUM_ERROR_INVALID, LIBSPECTRUM_ID_TAPE_TZX ) ) {
+        fprintf( stderr, "%s: TZX GDB validation case %lu failed\n", progname, (unsigned long)i );
+        goto done;
+      }
       if( !rejected_format( tape, LIBSPECTRUM_ERROR_INVALID, LIBSPECTRUM_ID_TAPE_CSW ) ) {
         fprintf( stderr, "%s: CSW validation case %lu failed\n", progname, (unsigned long)i );
         goto done;
@@ -366,6 +369,45 @@ pzx_write_metadata_variations( void )
   result = TEST_PASS;
 done:
   libspectrum_free( out ); libspectrum_tape_free( tape ); libspectrum_tape_free( dest );
+  return result;
+}
+
+test_return_t
+tzx_pzx_metadata_limits( void )
+{
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape_block *block;
+  char text[257];
+  const char *texts[256];
+  int ids[256];
+  size_t i;
+  test_return_t result = TEST_FAIL;
+  memset( text, 'A', 256 ); text[256] = 0;
+  block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_COMMENT );
+  char *copy = libspectrum_new( char, sizeof( text ) );
+  memcpy( copy, text, sizeof( text ) );
+  libspectrum_tape_block_set_text( block, copy );
+  libspectrum_tape_append_block( tape, block );
+  if( !rejected_format( tape, LIBSPECTRUM_ERROR_INVALID, LIBSPECTRUM_ID_TAPE_TZX ) )
+    goto done;
+  libspectrum_tape_clear( tape );
+  for( i = 0; i < 256; i++ ) { ids[i] = 0xff; texts[i] = text; }
+  libspectrum_tape_append_block( tape, archive_block( ids, texts, 1 ) );
+  if( !rejected_format( tape, LIBSPECTRUM_ERROR_INVALID, LIBSPECTRUM_ID_TAPE_TZX ) )
+    goto done;
+  libspectrum_tape_clear( tape );
+  text[255] = 0;
+  libspectrum_tape_append_block( tape, archive_block( ids, texts, 255 ) );
+  /* Each string fits, but the total archive body is 65536 bytes. */
+  if( !rejected_format( tape, LIBSPECTRUM_ERROR_INVALID, LIBSPECTRUM_ID_TAPE_TZX ) )
+    goto done;
+  libspectrum_tape_clear( tape ); text[0] = 0;
+  libspectrum_tape_append_block( tape, archive_block( ids, texts, 256 ) );
+  if( !rejected_format( tape, LIBSPECTRUM_ERROR_INVALID, LIBSPECTRUM_ID_TAPE_TZX ) )
+    goto done;
+  result = TEST_PASS;
+done:
+  libspectrum_tape_free( tape );
   return result;
 }
 

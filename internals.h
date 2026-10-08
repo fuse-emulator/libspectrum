@@ -288,6 +288,10 @@ libspectrum_error
 internal_tzx_write( libspectrum_buffer *buffer, libspectrum_tape *tape );
 
 libspectrum_error
+internal_tzx_write_pzx_block( libspectrum_buffer *buffer,
+                              libspectrum_tape_block *block );
+
+libspectrum_error
 internal_pzx_write( libspectrum_buffer *buffer, libspectrum_tape *tape );
 
 libspectrum_error

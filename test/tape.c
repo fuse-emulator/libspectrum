@@ -22,13 +22,13 @@ pzx_test_waveform( libspectrum_tape *tape, pzx_test_run *runs, size_t *count )
   size_t events = 0;
   *count = 0;
   do {
-    if( ++events > 200000 || libspectrum_tape_get_next_edge( &edge, tape ) )
+    if( ++events > 1000000 || libspectrum_tape_get_next_edge( &edge, tape ) )
       return 0;
     if( edge.tstates ) {
       if( *count && runs[*count - 1].level == edge.level ) {
         runs[*count - 1].duration += edge.tstates;
       } else {
-        if( *count == 100000 ) return 0;
+        if( *count == 500000 ) return 0;
         runs[*count].duration = edge.tstates;
         runs[(*count)++].level = edge.level;
       }
@@ -43,8 +43,8 @@ pzx_test_roundtrip_format( libspectrum_tape *source, libspectrum_id_t format )
   libspectrum_tape *dest = libspectrum_tape_alloc();
   libspectrum_byte *output = NULL;
   size_t length = 0, n = 0, m = 0, i;
-  pzx_test_run *a = libspectrum_new( pzx_test_run, 100000 );
-  pzx_test_run *b = libspectrum_new( pzx_test_run, 100000 );
+  pzx_test_run *a = libspectrum_new( pzx_test_run, 500000 );
+  pzx_test_run *b = libspectrum_new( pzx_test_run, 500000 );
   int result = 0;
   /* Writing must not move the caller's playback position. */
   libspectrum_tape_cursor *before = libspectrum_tape_cursor_capture( source );
@@ -176,6 +176,243 @@ pzx_write_waveforms( void )
       pzx_test_roundtrip_format( tape, LIBSPECTRUM_ID_TAPE_CSW ) ) result = TEST_PASS;
 done:
   libspectrum_tape_free( tape );
+  return result;
+}
+
+/* Exact PZX-style waveform export uses GDB only, without CSW or 0x2B. */
+static int
+tzx_test_only_gdb( libspectrum_tape *source, pzx_test_run *expected,
+                   size_t expected_count )
+{
+  libspectrum_tape *dest = libspectrum_tape_alloc();
+  libspectrum_tape_iterator it;
+  libspectrum_tape_block *block;
+  libspectrum_byte *output = NULL;
+  pzx_test_run *runs = libspectrum_new( pzx_test_run, 500000 );
+  size_t length = 0, count, i;
+  int result = 0;
+  if( libspectrum_tape_write( &output, &length, source, LIBSPECTRUM_ID_TAPE_TZX ) ||
+      libspectrum_tape_read( dest, output, length, LIBSPECTRUM_ID_TAPE_TZX, NULL ) )
+    goto done;
+  for( block = libspectrum_tape_iterator_init( &it, dest ); block;
+       block = libspectrum_tape_iterator_next( &it ) )
+    if( libspectrum_tape_block_type( block ) != LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA )
+      goto done;
+  if( !pzx_test_waveform( dest, runs, &count ) || count != expected_count ) goto done;
+  for( i = 0; i < count; i++ )
+    if( runs[i].duration != expected[i].duration || runs[i].level != expected[i].level )
+      goto done;
+  result = 1;
+done:
+  libspectrum_free( runs ); libspectrum_free( output ); libspectrum_tape_free( dest );
+  return result;
+}
+
+test_return_t
+tzx_pzx_gdb_holds_and_zero_pulses( void )
+{
+  pzx_test_run expected[] = {
+    { 65536, LIBSPECTRUM_TAPE_SIGNAL_LOW },
+    { 65536, LIBSPECTRUM_TAPE_SIGNAL_HIGH },
+    { 65553, LIBSPECTRUM_TAPE_SIGNAL_LOW },
+    { 0x7fffffff, LIBSPECTRUM_TAPE_SIGNAL_HIGH },
+    { 65535, LIBSPECTRUM_TAPE_SIGNAL_LOW }
+  };
+  pzx_test_run data_expected[] = {
+    { 65535, LIBSPECTRUM_TAPE_SIGNAL_HIGH },
+    { 65535, LIBSPECTRUM_TAPE_SIGNAL_LOW },
+    { 65535, LIBSPECTRUM_TAPE_SIGNAL_HIGH },
+    { 7, LIBSPECTRUM_TAPE_SIGNAL_LOW }
+  };
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape_block *block;
+  libspectrum_dword *lengths = libspectrum_new( libspectrum_dword, 1 );
+  size_t *repeats = libspectrum_new( size_t, 1 ), i;
+  libspectrum_word *s0, *s1;
+  libspectrum_byte *data;
+  test_return_t result = TEST_FAIL;
+  lengths[0] = 65536; repeats[0] = 3;
+  block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE );
+  libspectrum_tape_block_set_count( block, 1 );
+  libspectrum_tape_block_set_pulse_lengths( block, lengths );
+  libspectrum_tape_block_set_pulse_repeats( block, repeats );
+  libspectrum_tape_append_block( tape, block );
+  for( i = 0; i < 3; i++ ) {
+    block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PAUSE );
+    libspectrum_tape_block_set_level( block, i == 1 );
+    libspectrum_set_pause_tstates( block, i == 0 ? 17 : i == 1 ? 0x7fffffff : 65535 );
+    libspectrum_tape_append_block( tape, block );
+  }
+  libspectrum_tape_nth_block( tape, 0 );
+  if( !pzx_test_roundtrip_format( tape, LIBSPECTRUM_ID_TAPE_TZX ) ||
+      !pzx_test_roundtrip_format( tape, LIBSPECTRUM_ID_TAPE_CSW ) ||
+      !tzx_test_only_gdb( tape, expected, 5 ) ) goto done;
+  libspectrum_tape_clear( tape );
+  block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK );
+  s0 = libspectrum_new( libspectrum_word, 2 );
+  s1 = libspectrum_new( libspectrum_word, 2 );
+  data = libspectrum_new( libspectrum_byte, 1 );
+  s0[0] = 65535; s0[1] = 0; s1[0] = 0; s1[1] = 65535; data[0] = 0xa0;
+  libspectrum_tape_block_set_count( block, 3 );
+  libspectrum_tape_block_set_data_length( block, 1 );
+  libspectrum_tape_block_set_bits_in_last_byte( block, 3 );
+  libspectrum_tape_block_set_data( block, data );
+  libspectrum_tape_block_set_level( block, 0 );
+  libspectrum_tape_block_set_tail_length( block, 7 );
+  libspectrum_tape_block_set_bit0_pulse_count( block, 2 );
+  libspectrum_tape_block_set_bit1_pulse_count( block, 2 );
+  libspectrum_tape_block_set_bit0_pulses( block, s0 );
+  libspectrum_tape_block_set_bit1_pulses( block, s1 );
+  libspectrum_tape_append_block( tape, block );
+  libspectrum_tape_nth_block( tape, 0 );
+  if( !pzx_test_roundtrip_format( tape, LIBSPECTRUM_ID_TAPE_TZX ) ||
+      !pzx_test_roundtrip_format( tape, LIBSPECTRUM_ID_TAPE_CSW ) ||
+      !tzx_test_only_gdb( tape, data_expected, 4 ) ) goto done;
+  result = TEST_PASS;
+done:
+  libspectrum_tape_free( tape );
+  return result;
+}
+
+test_return_t
+tzx_pzx_gdb_compact_data_and_empty_sequences( void )
+{
+  pzx_test_run expected[] = {
+    { 1, LIBSPECTRUM_TAPE_SIGNAL_HIGH }, { 2, LIBSPECTRUM_TAPE_SIGNAL_LOW },
+    { 3, LIBSPECTRUM_TAPE_SIGNAL_HIGH }, { 855, LIBSPECTRUM_TAPE_SIGNAL_LOW },
+    { 855, LIBSPECTRUM_TAPE_SIGNAL_HIGH }, { 1, LIBSPECTRUM_TAPE_SIGNAL_LOW },
+    { 2, LIBSPECTRUM_TAPE_SIGNAL_HIGH }, { 3, LIBSPECTRUM_TAPE_SIGNAL_LOW },
+    { 945, LIBSPECTRUM_TAPE_SIGNAL_HIGH }
+  };
+  pzx_test_run empty_expected[] = {
+    { 1, LIBSPECTRUM_TAPE_SIGNAL_HIGH }, { 2, LIBSPECTRUM_TAPE_SIGNAL_LOW },
+    { 3, LIBSPECTRUM_TAPE_SIGNAL_HIGH }, { 1, LIBSPECTRUM_TAPE_SIGNAL_LOW },
+    { 2, LIBSPECTRUM_TAPE_SIGNAL_HIGH }, { 3, LIBSPECTRUM_TAPE_SIGNAL_LOW },
+    { 945, LIBSPECTRUM_TAPE_SIGNAL_HIGH }
+  };
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape_block *block;
+  libspectrum_word *s0 = libspectrum_new( libspectrum_word, 2 );
+  libspectrum_word *s1 = libspectrum_new( libspectrum_word, 3 );
+  libspectrum_byte *data = libspectrum_new( libspectrum_byte, 1 );
+  test_return_t result = TEST_FAIL;
+  s0[0] = s0[1] = 855; s1[0] = 1; s1[1] = 2; s1[2] = 3; data[0] = 0xa0;
+  block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK );
+  libspectrum_tape_block_set_count( block, 3 );
+  libspectrum_tape_block_set_data_length( block, 1 );
+  libspectrum_tape_block_set_bits_in_last_byte( block, 3 );
+  libspectrum_tape_block_set_data( block, data );
+  libspectrum_tape_block_set_level( block, 1 );
+  libspectrum_tape_block_set_tail_length( block, 945 );
+  libspectrum_tape_block_set_bit0_pulse_count( block, 2 );
+  libspectrum_tape_block_set_bit1_pulse_count( block, 3 );
+  libspectrum_tape_block_set_bit0_pulses( block, s0 );
+  libspectrum_tape_block_set_bit1_pulses( block, s1 );
+  libspectrum_tape_append_block( tape, block );
+  libspectrum_tape_nth_block( tape, 0 );
+  if( !pzx_test_roundtrip_format( tape, LIBSPECTRUM_ID_TAPE_TZX ) ||
+      !tzx_test_only_gdb( tape, expected, 9 ) ) goto done;
+  /* Empty bit sequences are valid PZX. Test against literal expectations,
+     since the native DATA playback engine does not support this case yet. */
+  libspectrum_tape_block_set_bit0_pulse_count( block, 0 );
+  if( !tzx_test_only_gdb( tape, empty_expected, 7 ) ) goto done;
+  result = TEST_PASS;
+done:
+  libspectrum_tape_free( tape );
+  return result;
+}
+
+test_return_t
+tzx_pzx_gdb_control_boundaries( void )
+{
+  libspectrum_tape *source = libspectrum_tape_alloc(), *dest = libspectrum_tape_alloc();
+  libspectrum_tape_block *block;
+  libspectrum_tape_iterator it;
+  libspectrum_byte *output = NULL;
+  libspectrum_tape_edge edge;
+  char *text = libspectrum_new( char, 5 );
+  libspectrum_dword *lengths = libspectrum_new( libspectrum_dword, 1 );
+  size_t *repeats = libspectrum_new( size_t, 1 ), i, length = 0;
+  test_return_t result = TEST_FAIL;
+  static const libspectrum_tape_type types[] = {
+    LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA, LIBSPECTRUM_TAPE_BLOCK_COMMENT,
+    LIBSPECTRUM_TAPE_BLOCK_STOP48, LIBSPECTRUM_TAPE_BLOCK_PAUSE,
+    LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA
+  };
+  block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PAUSE );
+  libspectrum_tape_block_set_level( block, 0 );
+  libspectrum_set_pause_tstates( block, 16 );
+  libspectrum_tape_append_block( source, block );
+  block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_COMMENT );
+  memcpy( text, "Here", 5 ); libspectrum_tape_block_set_text( block, text );
+  libspectrum_tape_append_block( source, block );
+  block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_STOP48 );
+  libspectrum_tape_append_block( source, block );
+  block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PAUSE );
+  libspectrum_tape_block_set_level( block, 0 ); libspectrum_set_pause_tstates( block, 0 );
+  libspectrum_tape_append_block( source, block );
+  block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE );
+  lengths[0] = 20; repeats[0] = 1;
+  libspectrum_tape_block_set_count( block, 1 );
+  libspectrum_tape_block_set_pulse_lengths( block, lengths );
+  libspectrum_tape_block_set_pulse_repeats( block, repeats );
+  libspectrum_tape_append_block( source, block );
+  if( libspectrum_tape_write( &output, &length, source, LIBSPECTRUM_ID_TAPE_TZX ) ||
+      libspectrum_tape_read( dest, output, length, LIBSPECTRUM_ID_TAPE_TZX, NULL ) )
+    goto done;
+  block = libspectrum_tape_iterator_init( &it, dest );
+  for( i = 0; i < sizeof( types ) / sizeof( types[0] ); i++ ) {
+    if( !block || libspectrum_tape_block_type( block ) != types[i] ) goto done;
+    block = libspectrum_tape_iterator_next( &it );
+  }
+  if( block || libspectrum_tape_get_next_edge( &edge, dest ) ||
+      edge.tstates != 16 || edge.level != LIBSPECTRUM_TAPE_SIGNAL_LOW ) goto done;
+  do {
+    if( libspectrum_tape_get_next_edge( &edge, dest ) || edge.tstates ) goto done;
+  } while( !( edge.flags & LIBSPECTRUM_TAPE_FLAGS_STOP48 ) );
+  if( edge.level != LIBSPECTRUM_TAPE_SIGNAL_LOW ||
+      libspectrum_tape_get_next_edge( &edge, dest ) || edge.tstates ||
+      !( edge.flags & LIBSPECTRUM_TAPE_FLAGS_STOP ) ||
+      ( edge.flags & LIBSPECTRUM_TAPE_FLAGS_TAPE ) ||
+      libspectrum_tape_get_next_edge( &edge, dest ) || edge.tstates != 20 ||
+      edge.level != LIBSPECTRUM_TAPE_SIGNAL_LOW ) goto done;
+  result = TEST_PASS;
+done:
+  libspectrum_free( output ); libspectrum_tape_free( source ); libspectrum_tape_free( dest );
+  return result;
+}
+
+test_return_t
+tzx_pzx_gdb_repeat_splitting( void )
+{
+  libspectrum_tape *tape = libspectrum_tape_alloc(), *dest = libspectrum_tape_alloc();
+  libspectrum_tape_block *block;
+  libspectrum_dword *lengths = libspectrum_new( libspectrum_dword, 1 );
+  size_t *repeats = libspectrum_new( size_t, 1 ), length = 0;
+  libspectrum_byte *output = NULL;
+  libspectrum_tape_generalised_data_symbol_table *table;
+  test_return_t result = TEST_FAIL;
+  lengths[0] = 100; repeats[0] = 131073; /* 65536 pairs plus one pulse. */
+  block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE );
+  libspectrum_tape_block_set_count( block, 1 );
+  libspectrum_tape_block_set_pulse_lengths( block, lengths );
+  libspectrum_tape_block_set_pulse_repeats( block, repeats );
+  libspectrum_tape_append_block( tape, block );
+  libspectrum_tape_nth_block( tape, 0 );
+  if( !pzx_test_roundtrip_format( tape, LIBSPECTRUM_ID_TAPE_TZX ) ||
+      libspectrum_tape_write( &output, &length, tape, LIBSPECTRUM_ID_TAPE_TZX ) ||
+      libspectrum_tape_read( dest, output, length, LIBSPECTRUM_ID_TAPE_TZX, NULL ) )
+    goto done;
+  block = libspectrum_tape_current_block( dest );
+  table = libspectrum_tape_block_pilot_table( block );
+  if( libspectrum_tape_block_type( block ) != LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA ||
+      libspectrum_tape_generalised_data_symbol_table_symbols_in_block( table ) != 3 ||
+      libspectrum_tape_block_pilot_repeats( block, 0 ) != 65535 ||
+      libspectrum_tape_block_pilot_repeats( block, 1 ) != 1 ||
+      libspectrum_tape_block_pilot_repeats( block, 2 ) != 1 ) goto done;
+  result = TEST_PASS;
+done:
+  libspectrum_free( output ); libspectrum_tape_free( tape ); libspectrum_tape_free( dest );
   return result;
 }
 
@@ -2384,26 +2621,19 @@ make_pzx_style_data_block( int level, libspectrum_word pulse_length,
   return block;
 }
 
-/* PZX stores the level of the first pulse in each block, whereas TZX pulse
-   blocks make an edge from the current level.  Check that TZX writing emits
-   the opposite pre-edge level for PULS, DATA and high PAUS blocks, while an
-   explicit Set Signal Level block remains literal. */
+/* PZX-style levels are carried by forced GDB symbols, not 0x2B blocks.
+   Compare positive-duration pulses independently of zero-time boundaries. */
 test_return_t
 tzx_write_preserves_pzx_style_initial_pulse_levels( void )
 {
   static const libspectrum_dword expected_tstates[] = {
-    0, 100, 0, 200, 200, 0, 0, 250, 0, 0, 300, 300, 0, 3500, 0, 400, 0
+    100, 200, 200, 250, 300, 300, 3500, 400
   };
   static const libspectrum_tape_signal_level expected_levels[] = {
-    LIBSPECTRUM_TAPE_SIGNAL_HIGH, LIBSPECTRUM_TAPE_SIGNAL_LOW,
     LIBSPECTRUM_TAPE_SIGNAL_LOW, LIBSPECTRUM_TAPE_SIGNAL_HIGH,
-    LIBSPECTRUM_TAPE_SIGNAL_LOW, LIBSPECTRUM_TAPE_SIGNAL_LOW,
     LIBSPECTRUM_TAPE_SIGNAL_LOW, LIBSPECTRUM_TAPE_SIGNAL_HIGH,
-    LIBSPECTRUM_TAPE_SIGNAL_HIGH, LIBSPECTRUM_TAPE_SIGNAL_HIGH,
     LIBSPECTRUM_TAPE_SIGNAL_LOW, LIBSPECTRUM_TAPE_SIGNAL_HIGH,
-    LIBSPECTRUM_TAPE_SIGNAL_HIGH, LIBSPECTRUM_TAPE_SIGNAL_LOW,
-    LIBSPECTRUM_TAPE_SIGNAL_LOW,
-    LIBSPECTRUM_TAPE_SIGNAL_HIGH, LIBSPECTRUM_TAPE_SIGNAL_HIGH
+    LIBSPECTRUM_TAPE_SIGNAL_LOW, LIBSPECTRUM_TAPE_SIGNAL_HIGH
   };
   libspectrum_tape *source = NULL, *roundtrip = NULL;
   libspectrum_tape_block *block;
@@ -2457,8 +2687,11 @@ tzx_write_preserves_pzx_style_initial_pulse_levels( void )
   r = TEST_FAIL;
   for( i = 0; i < sizeof( expected_tstates ) / sizeof( expected_tstates[0] );
        i++ ) {
-    if( libspectrum_tape_get_next_edge( &edge, roundtrip ) ||
-        edge.tstates != expected_tstates[i] ||
+    do {
+      if( libspectrum_tape_get_next_edge( &edge, roundtrip ) ) goto done;
+      if( ( edge.flags & LIBSPECTRUM_TAPE_FLAGS_TAPE ) && !edge.tstates ) goto done;
+    } while( !edge.tstates );
+    if( edge.tstates != expected_tstates[i] ||
         edge.level != expected_levels[i] ) {
       fprintf( stderr, "%s: TZX PZX-style initial level mismatch at edge %lu"
                " (expected %lu/%d, got %lu/%d)\n", progname,
@@ -2476,12 +2709,9 @@ done:
   return r;
 }
 
-/* Test that tzx_write_pulse_sequence correctly splits PULSES blocks when
-   more than 255 single-repeat pulses are present.
-   The TZX ID 0x13 (Pulse sequence) block stores its count in a single byte
-   so counts > 255 must be split across multiple blocks. */
+/* More than 256 distinct GDB symbols require an additional alphabet/block. */
 test_return_t
-tzx_pulse_sequence_over_255_splits_into_multiple_pulses_blocks( void )
+tzx_pzx_gdb_alphabet_splitting( void )
 {
   libspectrum_tape *tape;
   libspectrum_tape_block *block;
@@ -2490,8 +2720,8 @@ tzx_pulse_sequence_over_255_splits_into_multiple_pulses_blocks( void )
   libspectrum_byte *output;
   size_t length;
   const size_t pulse_count = 300;
-  const size_t first_block_expected = 255;
-  const size_t second_block_expected = 45;
+  const size_t first_block_expected = 256;
+  const size_t second_block_expected = 44;
   test_return_t r;
   size_t i, offset;
   int pulses_blocks_found, first_count, second_count, blk_count;
@@ -2529,52 +2759,40 @@ tzx_pulse_sequence_over_255_splits_into_multiple_pulses_blocks( void )
   length = 0;
   r = TEST_INCOMPLETE;
   if( libspectrum_tape_write( &output, &length, tape, LIBSPECTRUM_ID_TAPE_TZX ) ) {
-    fprintf( stderr, "%s: tzx_pulse_sequence_over_255_splits_into_multiple_pulses_blocks: tape write failed\n", progname );
+    fprintf( stderr, "%s: GDB alphabet splitting: tape write failed\n", progname );
     libspectrum_tape_free( tape );
     return TEST_INCOMPLETE;
   }
   libspectrum_tape_free( tape );
 
-  /* TZX layout:
-       header: "ZXTape!\x1a" (8) + major (1) + minor (1) = 10 bytes
-       SET_SIGNAL_LEVEL (0x2B): ID (1) + length dword (4) + level (1) = 6 bytes
-       PULSES block(s) (0x13): ID (1) + count (1) + count*2 bytes */
   r = TEST_FAIL;
-  offset = 10; /* skip TZX header */
-
-  if( offset + 6 > length ||
-      output[offset] != LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL ) {
-    fprintf( stderr, "%s: tzx_pulse_sequence_over_255_splits_into_multiple_pulses_blocks: expected SET_SIGNAL_LEVEL block at offset %lu\n",
-             progname, (unsigned long)offset );
-    goto done;
-  }
-  offset += 6;
-
-  pulses_blocks_found = 0;
-  first_count = 0;
-  second_count = 0;
-  while( offset < length && output[offset] == LIBSPECTRUM_TAPE_BLOCK_PULSES ) {
-    offset++; /* skip ID */
-    if( offset >= length ) goto done;
-    blk_count = output[offset++];
+  offset = 10;
+  pulses_blocks_found = first_count = second_count = 0;
+  while( offset + 19 <= length &&
+         output[offset] == LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA ) {
+    const libspectrum_byte *ptr = output + offset + 1;
+    libspectrum_dword size = libspectrum_read_dword( &ptr );
+    blk_count = output[offset + 12];
+    if( !blk_count ) blk_count = 256;
     pulses_blocks_found++;
     if( pulses_blocks_found == 1 ) first_count = blk_count;
     else if( pulses_blocks_found == 2 ) second_count = blk_count;
-    offset += 2 * (size_t)blk_count;
+    offset += 5 + size;
   }
+  if( offset != length ) goto done;
 
   if( pulses_blocks_found != 2 ) {
-    fprintf( stderr, "%s: tzx_pulse_sequence_over_255_splits_into_multiple_pulses_blocks: expected 2 PULSES blocks, found %d\n",
+    fprintf( stderr, "%s: expected 2 GDB blocks, found %d\n",
              progname, pulses_blocks_found );
     goto done;
   }
   if( (size_t)first_count != first_block_expected ) {
-    fprintf( stderr, "%s: tzx_pulse_sequence_over_255_splits_into_multiple_pulses_blocks: expected first PULSES count=%lu, got %d\n",
+    fprintf( stderr, "%s: expected first GDB alphabet size=%lu, got %d\n",
              progname, (unsigned long)first_block_expected, first_count );
     goto done;
   }
   if( (size_t)second_count != second_block_expected ) {
-    fprintf( stderr, "%s: tzx_pulse_sequence_over_255_splits_into_multiple_pulses_blocks: expected second PULSES count=%lu, got %d\n",
+    fprintf( stderr, "%s: expected second GDB alphabet size=%lu, got %d\n",
              progname, (unsigned long)second_block_expected, second_count );
     goto done;
   }
