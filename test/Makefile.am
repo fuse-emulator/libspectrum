@@ -44,6 +44,7 @@ test_test_SOURCES = \
 	test/tape-iterator.c \
 	test/tape.c \
 	test/pzx-write.c \
+	test/csw-write.c \
 	test/timings.c \
 	test/utilities.c \
 	test/identify.c

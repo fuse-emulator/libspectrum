@@ -38,7 +38,7 @@ pzx_test_waveform( libspectrum_tape *tape, pzx_test_run *runs, size_t *count )
 }
 
 static int
-pzx_test_roundtrip( libspectrum_tape *source )
+pzx_test_roundtrip_format( libspectrum_tape *source, libspectrum_id_t format )
 {
   libspectrum_tape *dest = libspectrum_tape_alloc();
   libspectrum_byte *output = NULL;
@@ -53,13 +53,12 @@ pzx_test_roundtrip( libspectrum_tape *source )
   if( libspectrum_tape_cursor_get_next_edge( &expected, probe ) ) goto done;
   {
     libspectrum_error error = libspectrum_tape_write( &output, &length, source,
-                                                     LIBSPECTRUM_ID_TAPE_PZX );
+                                                     format );
     if( error ) {
       fprintf( stderr, "%s: PZX write error %d\n", progname, error );
       goto done;
     }
-    if( libspectrum_tape_read( dest, output, length, LIBSPECTRUM_ID_TAPE_PZX,
-                               NULL ) ) goto done;
+    if( libspectrum_tape_read( dest, output, length, format, NULL ) ) goto done;
   }
   if( libspectrum_tape_get_next_edge( &actual, source ) ||
       actual.tstates != expected.tstates || actual.level != expected.level ||
@@ -91,6 +90,12 @@ done:
   libspectrum_free( a ); libspectrum_free( b ); libspectrum_free( output );
   libspectrum_tape_free( dest );
   return result;
+}
+
+static int
+pzx_test_roundtrip( libspectrum_tape *source )
+{
+  return pzx_test_roundtrip_format( source, LIBSPECTRUM_ID_TAPE_PZX );
 }
 
 test_return_t
@@ -167,7 +172,8 @@ pzx_write_waveforms( void )
     libspectrum_tape_append_block( tape, block );
   }
   libspectrum_tape_nth_block( tape, 0 );
-  if( pzx_test_roundtrip( tape ) ) result = TEST_PASS;
+  if( pzx_test_roundtrip( tape ) &&
+      pzx_test_roundtrip_format( tape, LIBSPECTRUM_ID_TAPE_CSW ) ) result = TEST_PASS;
 done:
   libspectrum_tape_free( tape );
   return result;
@@ -1367,9 +1373,10 @@ csw_rle_pulse_conversion( void )
   }
 
   sample_rate = libspectrum_read_dword_le( buffer + 25 );
-  if( sample_rate != 3500000 / 79 ) {
+  /* Scale-only recordings have exact T-state durations, not a known rate. */
+  if( sample_rate != 3500000 ) {
     fprintf( stderr, "%s: CSW sample rate was %" PRIu32 ", expected %d\n",
-             progname, sample_rate, 3500000 / 79 );
+             progname, sample_rate, 3500000 );
     goto done;
   }
 

@@ -111,7 +111,8 @@ archive_block( const int *ids, const char * const *texts, size_t count )
 
 /* Every rejection must preserve allocated output, its size, and playback. */
 static int
-rejected( libspectrum_tape *tape, libspectrum_error expected )
+rejected_format( libspectrum_tape *tape, libspectrum_error expected,
+                 libspectrum_id_t format )
 {
   libspectrum_byte *out = libspectrum_new( libspectrum_byte, 4 ), *original = out;
   size_t length = 4;
@@ -120,13 +121,18 @@ rejected( libspectrum_tape *tape, libspectrum_error expected )
   memcpy( out, "keep", 4 );
   libspectrum_tape_position( &position_before, tape );
   libspectrum_tape_signal_level_get( &before, tape );
-  ok = libspectrum_tape_write( &out, &length, tape, LIBSPECTRUM_ID_TAPE_PZX ) ==
-    expected && out == original && length == 4 && !memcmp( out, "keep", 4 );
+  ok = libspectrum_tape_write( &out, &length, tape, format ) == expected && out == original && length == 4 && !memcmp( out, "keep", 4 );
   libspectrum_tape_position( &position_after, tape );
   libspectrum_tape_signal_level_get( &after, tape );
   ok = ok && position_before == position_after && before == after;
   libspectrum_free( out );
   return ok;
+}
+
+static int
+rejected( libspectrum_tape *tape, libspectrum_error expected )
+{
+  return rejected_format( tape, expected, LIBSPECTRUM_ID_TAPE_PZX );
 }
 
 test_return_t
@@ -296,6 +302,14 @@ pzx_write_validation_matrix( void )
     if( !rejected( tape, LIBSPECTRUM_ERROR_INVALID ) ) {
       fprintf( stderr, "%s: PZX validation case %lu failed\n", progname, (unsigned long)i );
       goto done;
+    }
+    if( i < 13 ) {
+      /* An explicit-level pause is PZX-style; unspecified pauses are legacy. */
+      if( i == 9 ) libspectrum_tape_block_set_level( b, 0 );
+      if( !rejected_format( tape, LIBSPECTRUM_ERROR_INVALID, LIBSPECTRUM_ID_TAPE_CSW ) ) {
+        fprintf( stderr, "%s: CSW validation case %lu failed\n", progname, (unsigned long)i );
+        goto done;
+      }
     }
   }
   result = TEST_PASS;

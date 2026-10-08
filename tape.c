@@ -362,6 +362,10 @@ libspectrum_tape_write( libspectrum_byte **buffer, size_t *length,
 
   case LIBSPECTRUM_ID_TAPE_CSW:
     error = libspectrum_csw_write( new_buffer, tape );
+    if( error ) {
+      libspectrum_buffer_free( new_buffer );
+      return error;
+    }
     break;
 
   default:
@@ -573,6 +577,12 @@ libspectrum_tape_get_next_edge_internal( libspectrum_dword *tstates,
       break;
 
     case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
+      /* Exact-rate recordings inherit their initial polarity. Scale-only
+         pulse lists keep the legacy toggle-before-pulse convention. */
+      if( block->types.rle_pulse.sample_rate &&
+          it->block_state.rle_pulse.index == 0 )
+        *flags |= it->signal_level ? LIBSPECTRUM_TAPE_FLAGS_LEVEL_HIGH :
+                                     LIBSPECTRUM_TAPE_FLAGS_LEVEL_LOW;
       error = rle_pulse_edge( &(block->types.rle_pulse),
                               &(it->block_state.rle_pulse), tstates, &end_of_block);
       if( error ) return error;
@@ -1410,10 +1420,13 @@ rle_pulse_edge( libspectrum_tape_rle_pulse_block *block,
   if( block->sample_rate ) {
     libspectrum_qword total = (libspectrum_qword)samples * 3500000 +
                               state->remainder;
+    if( total / block->sample_rate > UINT32_MAX ) return LIBSPECTRUM_ERROR_INVALID;
     *tstates = total / block->sample_rate;
     state->remainder = total % block->sample_rate;
   } else {
-    *tstates = block->scale * samples;
+    libspectrum_qword duration = (libspectrum_qword)block->scale * samples;
+    if( duration > UINT32_MAX ) return LIBSPECTRUM_ERROR_INVALID;
+    *tstates = duration;
   }
 
   if( state->index == block->length ) *end_of_block = END_OF_BLOCK_NORMAL;
