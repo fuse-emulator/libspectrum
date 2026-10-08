@@ -43,6 +43,7 @@ test_test_SOURCES = \
 	test/tape-edges.c \
 	test/tape-iterator.c \
 	test/tape.c \
+	test/pzx-write.c \
 	test/timings.c \
 	test/utilities.c \
 	test/identify.c

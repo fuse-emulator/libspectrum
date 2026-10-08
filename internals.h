@@ -288,6 +288,9 @@ libspectrum_error
 internal_tzx_write( libspectrum_buffer *buffer, libspectrum_tape *tape );
 
 libspectrum_error
+internal_pzx_write( libspectrum_buffer *buffer, libspectrum_tape *tape );
+
+libspectrum_error
 internal_warajevo_read( libspectrum_tape *tape,
 			const libspectrum_byte *buffer, size_t length );
 

@@ -351,6 +351,15 @@ libspectrum_tape_write( libspectrum_byte **buffer, size_t *length,
     error = internal_tzx_write( new_buffer, tape );
     break;
 
+  case LIBSPECTRUM_ID_TAPE_PZX:
+    error = internal_pzx_write( new_buffer, tape );
+    /* Do not expose a partial PZX file when conversion is rejected. */
+    if( error ) {
+      libspectrum_buffer_free( new_buffer );
+      return error;
+    }
+    break;
+
   case LIBSPECTRUM_ID_TAPE_CSW:
     error = libspectrum_csw_write( new_buffer, tape );
     break;

@@ -8,6 +8,434 @@
 #include "common.h"
 #include "test.h"
 
+/* Compare time spent at each level, not representation-specific zero-time
+   edges or block boundaries. Adjacent pulses at the same level are merged. */
+typedef struct pzx_test_run {
+  libspectrum_qword duration;
+  libspectrum_tape_signal_level level;
+} pzx_test_run;
+
+static int
+pzx_test_waveform( libspectrum_tape *tape, pzx_test_run *runs, size_t *count )
+{
+  libspectrum_tape_edge edge;
+  size_t events = 0;
+  *count = 0;
+  do {
+    if( ++events > 200000 || libspectrum_tape_get_next_edge( &edge, tape ) )
+      return 0;
+    if( edge.tstates ) {
+      if( *count && runs[*count - 1].level == edge.level ) {
+        runs[*count - 1].duration += edge.tstates;
+      } else {
+        if( *count == 100000 ) return 0;
+        runs[*count].duration = edge.tstates;
+        runs[(*count)++].level = edge.level;
+      }
+    }
+  } while( !( edge.flags & LIBSPECTRUM_TAPE_FLAGS_TAPE ) );
+  return 1;
+}
+
+static int
+pzx_test_roundtrip( libspectrum_tape *source )
+{
+  libspectrum_tape *dest = libspectrum_tape_alloc();
+  libspectrum_byte *output = NULL;
+  size_t length = 0, n = 0, m = 0, i;
+  pzx_test_run *a = libspectrum_new( pzx_test_run, 100000 );
+  pzx_test_run *b = libspectrum_new( pzx_test_run, 100000 );
+  int result = 0;
+  /* Writing must not move the caller's playback position. */
+  libspectrum_tape_cursor *before = libspectrum_tape_cursor_capture( source );
+  libspectrum_tape_cursor *probe = libspectrum_tape_cursor_clone( before );
+  libspectrum_tape_edge expected, actual;
+  if( libspectrum_tape_cursor_get_next_edge( &expected, probe ) ) goto done;
+  {
+    libspectrum_error error = libspectrum_tape_write( &output, &length, source,
+                                                     LIBSPECTRUM_ID_TAPE_PZX );
+    if( error ) {
+      fprintf( stderr, "%s: PZX write error %d\n", progname, error );
+      goto done;
+    }
+    if( libspectrum_tape_read( dest, output, length, LIBSPECTRUM_ID_TAPE_PZX,
+                               NULL ) ) goto done;
+  }
+  if( libspectrum_tape_get_next_edge( &actual, source ) ||
+      actual.tstates != expected.tstates || actual.level != expected.level ||
+      actual.transition != expected.transition || actual.flags != expected.flags ) {
+    fprintf( stderr, "%s: PZX writer changed position: %u/%d/%d/%d vs %u/%d/%d/%d\n",
+      progname, actual.tstates, actual.level, actual.transition, actual.flags,
+      expected.tstates, expected.level, expected.transition, expected.flags );
+    goto done;
+  }
+  libspectrum_tape_cursor_apply( source, before );
+  if( !pzx_test_waveform( source, a, &n ) ||
+      !pzx_test_waveform( dest, b, &m ) ) {
+    fprintf( stderr, "%s: PZX run counts %lu/%lu\n", progname,
+             (unsigned long)n, (unsigned long)m );
+    goto done;
+  }
+  for( i = 0; i < n && i < m; i++ )
+    if( a[i].duration != b[i].duration || a[i].level != b[i].level ) {
+      fprintf( stderr, "%s: PZX waveform differs at run %lu: %llu/%d vs %llu/%d (counts %lu/%lu)\n", progname,
+               (unsigned long)i, (unsigned long long)a[i].duration, a[i].level,
+               (unsigned long long)b[i].duration, b[i].level,
+               (unsigned long)n, (unsigned long)m );
+      goto done;
+    }
+  result = n == m;
+done:
+  libspectrum_tape_cursor_free( probe );
+  libspectrum_tape_cursor_free( before );
+  libspectrum_free( a ); libspectrum_free( b ); libspectrum_free( output );
+  libspectrum_tape_free( dest );
+  return result;
+}
+
+test_return_t
+pzx_write_waveforms( void )
+{
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape_block *block;
+  libspectrum_dword *pulses;
+  size_t *repeats;
+  libspectrum_word *s0, *s1;
+  libspectrum_byte *data;
+  size_t i;
+  test_return_t result = TEST_FAIL;
+  /* Prefix ambiguity boundaries, split repeat counts, zero-pulse parity. */
+  static const libspectrum_dword lengths[] = {
+    0, 32767, 32768, 65535, 65536, 0x7fffffff, 0, 100
+  };
+  pulses = libspectrum_new( libspectrum_dword, 8 );
+  repeats = libspectrum_new( size_t, 8 );
+  for( i = 0; i < 8; i++ ) { pulses[i] = lengths[i]; repeats[i] = 1; }
+  repeats[0] = 3; repeats[6] = 2; repeats[7] = 32768;
+  block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE );
+  libspectrum_tape_block_set_count( block, 8 );
+  libspectrum_tape_block_set_pulse_lengths( block, pulses );
+  libspectrum_tape_block_set_pulse_repeats( block, repeats );
+  libspectrum_tape_append_block( tape, block );
+
+  for( i = 0; i < 2; i++ ) {
+    block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK );
+    s0 = libspectrum_new( libspectrum_word, 2 );
+    s1 = libspectrum_new( libspectrum_word, 2 );
+    data = libspectrum_new( libspectrum_byte, 1 );
+    s0[0] = 0; s0[1] = 79; s1[0] = 79; s1[1] = 0; data[0] = 0xa0;
+    libspectrum_tape_block_set_count( block, 3 );
+    libspectrum_tape_block_set_data_length( block, 1 );
+    libspectrum_tape_block_set_bits_in_last_byte( block, 3 );
+    libspectrum_tape_block_set_data( block, data );
+    libspectrum_tape_block_set_level( block, i );
+    libspectrum_tape_block_set_tail_length( block, i ? 945 : 0 );
+    libspectrum_tape_block_set_bit0_pulse_count( block, 2 );
+    libspectrum_tape_block_set_bit1_pulse_count( block, 2 );
+    libspectrum_tape_block_set_bit0_pulses( block, s0 );
+    libspectrum_tape_block_set_bit1_pulses( block, s1 );
+    libspectrum_tape_append_block( tape, block );
+  }
+  libspectrum_tape_nth_block( tape, 0 );
+  if( !pzx_test_roundtrip( tape ) ) goto done;
+  for( i = 0; i < 6; i++ ) {
+    libspectrum_tape_type type = i < 2 ? LIBSPECTRUM_TAPE_BLOCK_ROM :
+      i < 4 ? LIBSPECTRUM_TAPE_BLOCK_TURBO : LIBSPECTRUM_TAPE_BLOCK_PURE_DATA;
+    block = libspectrum_tape_block_alloc( type );
+    data = libspectrum_new( libspectrum_byte, 2 );
+    data[0] = i & 1 ? 0xff : 0; data[1] = 0xa5;
+    libspectrum_tape_block_set_data_length( block, 2 );
+    libspectrum_tape_block_set_data( block, data );
+    libspectrum_set_pause_tstates( block, i & 1 ? 3500000 : 0 );
+    if( type != LIBSPECTRUM_TAPE_BLOCK_ROM ) {
+      libspectrum_tape_block_set_bits_in_last_byte( block, 3 );
+      libspectrum_tape_block_set_bit0_length( block, 200 );
+      libspectrum_tape_block_set_bit1_length( block, 400 );
+    }
+    if( type == LIBSPECTRUM_TAPE_BLOCK_TURBO ) {
+      libspectrum_tape_block_set_pilot_pulses( block, i & 1 ? 3 : 0 );
+      libspectrum_tape_block_set_pilot_length( block, 800 );
+      libspectrum_tape_block_set_sync1_length( block, 100 );
+      libspectrum_tape_block_set_sync2_length( block, 150 );
+    }
+    libspectrum_tape_append_block( tape, block );
+  }
+  for( i = 0; i < 2; i++ ) {
+    block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PAUSE );
+    libspectrum_set_pause_tstates( block, 70000 );
+    libspectrum_tape_block_set_level( block, i );
+    libspectrum_tape_append_block( tape, block );
+  }
+  libspectrum_tape_nth_block( tape, 0 );
+  if( pzx_test_roundtrip( tape ) ) result = TEST_PASS;
+done:
+  libspectrum_tape_free( tape );
+  return result;
+}
+
+test_return_t
+pzx_write_legacy_tails( void )
+{
+  static const libspectrum_dword pauses[] = { 0, 1, 65535, 65536, 3500000 };
+  static const libspectrum_tape_type types[] = {
+    LIBSPECTRUM_TAPE_BLOCK_ROM, LIBSPECTRUM_TAPE_BLOCK_TURBO,
+    LIBSPECTRUM_TAPE_BLOCK_PURE_DATA
+  };
+  libspectrum_tape *source = NULL, *dest = NULL;
+  libspectrum_byte *output = NULL;
+  size_t t, p, polarity, length = 0;
+  test_return_t result = TEST_FAIL;
+
+  for( t = 0; t < sizeof( types ) / sizeof( types[0] ); t++ ) {
+    for( p = 0; p < sizeof( pauses ) / sizeof( pauses[0] ); p++ ) {
+      for( polarity = 0; polarity < 2; polarity++ ) {
+        libspectrum_tape_block *block, *data_block;
+        libspectrum_tape_iterator it;
+        libspectrum_dword *pulses = libspectrum_new( libspectrum_dword, 1 );
+        size_t *repeats = libspectrum_new( size_t, 1 );
+        libspectrum_byte *data = libspectrum_new( libspectrum_byte, 1 );
+        libspectrum_dword tail = pauses[p] > 65535 ? 65535 : pauses[p];
+        libspectrum_tape_edge edge;
+        int pause_level = -1;
+        source = libspectrum_tape_alloc(); dest = libspectrum_tape_alloc();
+        /* Precede conversion with either level, without a forced-low boundary. */
+        pulses[0] = 50; repeats[0] = polarity ? 1 : 2;
+        block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE );
+        libspectrum_tape_block_set_count( block, 1 );
+        libspectrum_tape_block_set_pulse_lengths( block, pulses );
+        libspectrum_tape_block_set_pulse_repeats( block, repeats );
+        libspectrum_tape_append_block( source, block );
+        block = libspectrum_tape_block_alloc( types[t] );
+        data[0] = polarity ? 0xff : 0;
+        libspectrum_tape_block_set_data_length( block, 1 );
+        libspectrum_tape_block_set_data( block, data );
+        libspectrum_set_pause_tstates( block, pauses[p] );
+        if( types[t] != LIBSPECTRUM_TAPE_BLOCK_ROM ) {
+          libspectrum_tape_block_set_bits_in_last_byte( block, 3 );
+          libspectrum_tape_block_set_bit0_length( block, 100 );
+          libspectrum_tape_block_set_bit1_length( block, 200 );
+        }
+        if( types[t] == LIBSPECTRUM_TAPE_BLOCK_TURBO ) {
+          libspectrum_tape_block_set_pilot_pulses( block, polarity ? 3 : 2 );
+          libspectrum_tape_block_set_pilot_length( block, 800 );
+          libspectrum_tape_block_set_sync1_length( block, 200 );
+          libspectrum_tape_block_set_sync2_length( block, 300 );
+        }
+        libspectrum_tape_append_block( source, block );
+        libspectrum_tape_nth_block( source, 0 );
+        /* Record the actual post-data pulse's level independently. */
+        do {
+          if( libspectrum_tape_get_next_edge( &edge, source ) ) goto done;
+          if( edge.flags & LIBSPECTRUM_TAPE_FLAGS_TAPE ) pause_level = edge.level;
+        } while( !( edge.flags & LIBSPECTRUM_TAPE_FLAGS_TAPE ) );
+        libspectrum_tape_nth_block( source, 0 );
+        if( !pzx_test_roundtrip( source ) ||
+            libspectrum_tape_write( &output, &length, source,
+                                     LIBSPECTRUM_ID_TAPE_PZX ) ||
+            libspectrum_tape_read( dest, output, length,
+                                    LIBSPECTRUM_ID_TAPE_PZX, NULL ) ) goto done;
+        data_block = libspectrum_tape_iterator_init( &it, dest );
+        while( data_block && libspectrum_tape_block_type( data_block ) !=
+               LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK )
+          data_block = libspectrum_tape_iterator_next( &it );
+        if( !data_block || libspectrum_tape_block_tail_length( data_block ) != tail )
+          goto done;
+        block = libspectrum_tape_iterator_next( &it );
+        if( pauses[p] > tail ) {
+          if( !block || libspectrum_tape_block_type( block ) !=
+                LIBSPECTRUM_TAPE_BLOCK_PAUSE ||
+              libspectrum_tape_block_pause_tstates( block ) != pauses[p] - tail ||
+              libspectrum_tape_block_level( block ) != pause_level ||
+              libspectrum_tape_iterator_next( &it ) ) goto done;
+        } else if( block ) goto done;
+        libspectrum_free( output ); output = NULL; length = 0;
+        libspectrum_tape_free( source ); source = NULL;
+        libspectrum_tape_free( dest ); dest = NULL;
+      }
+    }
+  }
+  result = TEST_PASS;
+done:
+  if( result != TEST_PASS )
+    fprintf( stderr, "%s: PZX legacy tail mismatch (type %lu, pause %lu, polarity %lu)\n",
+             progname, (unsigned long)t, (unsigned long)p, (unsigned long)polarity );
+  libspectrum_free( output );
+  if( source ) libspectrum_tape_free( source );
+  if( dest ) libspectrum_tape_free( dest );
+  return result;
+}
+
+test_return_t
+pzx_write_coalesces_pulses( void )
+{
+  static const libspectrum_dword lengths[] = { 100, 100, 100, 0, 0, 65536, 65536 };
+  static const size_t counts[] = { 1, 32766, 2, 3, 2, 1, 2 };
+  static const libspectrum_dword expected_lengths[] = { 100, 100, 0, 65536 };
+  static const size_t expected_counts[] = { 32767, 2, 5, 3 };
+  libspectrum_tape *source = libspectrum_tape_alloc();
+  libspectrum_tape *dest = libspectrum_tape_alloc();
+  libspectrum_tape_block *block;
+  libspectrum_tape_iterator it;
+  libspectrum_byte *output = NULL;
+  size_t i, length = 0;
+  test_return_t result = TEST_FAIL;
+  libspectrum_dword *pulses = libspectrum_new( libspectrum_dword, 7 );
+  size_t *repeats = libspectrum_new( size_t, 7 );
+  memcpy( pulses, lengths, sizeof( lengths ) );
+  memcpy( repeats, counts, sizeof( counts ) );
+  block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE );
+  libspectrum_tape_block_set_count( block, 7 );
+  libspectrum_tape_block_set_pulse_lengths( block, pulses );
+  libspectrum_tape_block_set_pulse_repeats( block, repeats );
+  libspectrum_tape_append_block( source, block );
+  /* Equal duration in the next block must not be merged across its reset. */
+  pulses = libspectrum_new( libspectrum_dword, 1 );
+  repeats = libspectrum_new( size_t, 1 );
+  pulses[0] = 65536; repeats[0] = 1;
+  block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE );
+  libspectrum_tape_block_set_count( block, 1 );
+  libspectrum_tape_block_set_pulse_lengths( block, pulses );
+  libspectrum_tape_block_set_pulse_repeats( block, repeats );
+  libspectrum_tape_append_block( source, block );
+  libspectrum_tape_nth_block( source, 0 );
+  if( !pzx_test_roundtrip( source ) ||
+      libspectrum_tape_write( &output, &length, source, LIBSPECTRUM_ID_TAPE_PZX ) ||
+      libspectrum_tape_read( dest, output, length, LIBSPECTRUM_ID_TAPE_PZX, NULL ) )
+    goto done;
+  /* Header (10), coalesced PULS (8+18), separate PULS (8+6). */
+  if( length != 50 || memcmp( output + 10, "PULS\x12\0\0\0", 8 ) ||
+      memcmp( output + 36, "PULS\x06\0\0\0", 8 ) ) goto done;
+  block = libspectrum_tape_iterator_init( &it, dest );
+  if( !block || libspectrum_tape_block_count( block ) != 4 ) goto done;
+  for( i = 0; i < 4; i++ )
+    if( libspectrum_tape_block_pulse_lengths( block, i ) != expected_lengths[i] ||
+        libspectrum_tape_block_pulse_repeats( block, i ) != expected_counts[i] )
+      goto done;
+  block = libspectrum_tape_iterator_next( &it );
+  if( !block || libspectrum_tape_block_count( block ) != 1 ||
+      libspectrum_tape_block_pulse_lengths( block, 0 ) != 65536 ||
+      libspectrum_tape_block_pulse_repeats( block, 0 ) != 1 ||
+      libspectrum_tape_iterator_next( &it ) ) goto done;
+  result = TEST_PASS;
+done:
+  libspectrum_free( output );
+  libspectrum_tape_free( source ); libspectrum_tape_free( dest );
+  return result;
+}
+
+test_return_t
+pzx_write_metadata_and_stops( void )
+{
+  static const libspectrum_byte input[] =
+    "PZXT\x1f\0\0\0\x01\0Title\0Author\0Alice\0Comment\0X\0"
+    "BRWS\x04\0\0\0Here"
+    "STOP\x02\0\0\0\x01\0"
+    "STOP\x02\0\0\0\0\0"
+    /* Valid PZX encoding with zero pulses for both bit values. */
+    "DATA\x09\0\0\0\x01\0\0\x80\0\0\0\0\x80";
+  libspectrum_tape *source = libspectrum_tape_alloc();
+  libspectrum_tape *dest = libspectrum_tape_alloc();
+  libspectrum_tape_iterator a, b;
+  libspectrum_tape_block *x, *y;
+  libspectrum_byte *output = NULL;
+  size_t length = 0, i;
+  test_return_t result = TEST_FAIL;
+  if( libspectrum_tape_read( source, input, sizeof( input ) - 1,
+                             LIBSPECTRUM_ID_TAPE_PZX, NULL ) ||
+      libspectrum_tape_write( &output, &length, source,
+                              LIBSPECTRUM_ID_TAPE_PZX ) ||
+      libspectrum_tape_read( dest, output, length,
+                             LIBSPECTRUM_ID_TAPE_PZX, NULL ) ) goto done;
+  /* The titled archive must be the first PZXT, not follow an empty header. */
+  if( length != sizeof( input ) - 1 || memcmp( output, input, length ) ) goto done;
+  x = libspectrum_tape_iterator_init( &a, source );
+  y = libspectrum_tape_iterator_init( &b, dest );
+  while( x && y ) {
+    libspectrum_tape_type type = libspectrum_tape_block_type( x );
+    if( type != libspectrum_tape_block_type( y ) ) goto done;
+    if( type == LIBSPECTRUM_TAPE_BLOCK_ARCHIVE_INFO ) {
+      if( libspectrum_tape_block_count( x ) != libspectrum_tape_block_count( y ) )
+        goto done;
+      for( i = 0; i < libspectrum_tape_block_count( x ); i++ )
+        if( libspectrum_tape_block_ids( x, i ) !=
+            libspectrum_tape_block_ids( y, i ) ||
+            strcmp( libspectrum_tape_block_texts( x, i ),
+                    libspectrum_tape_block_texts( y, i ) ) ) goto done;
+    } else if( type == LIBSPECTRUM_TAPE_BLOCK_COMMENT ) {
+      if( strcmp( libspectrum_tape_block_text( x ),
+                  libspectrum_tape_block_text( y ) ) ) goto done;
+    } else if( type == LIBSPECTRUM_TAPE_BLOCK_PAUSE ) {
+      if( libspectrum_tape_block_pause_tstates( y ) != 0 ) goto done;
+    } else if( type == LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK ) {
+      if( libspectrum_tape_block_count( y ) != 1 ||
+          libspectrum_tape_block_bit0_pulse_count( y ) != 0 ||
+          libspectrum_tape_block_bit1_pulse_count( y ) != 0 ||
+          libspectrum_tape_block_level( y ) != 1 ||
+          libspectrum_tape_block_data( y )[0] != 0x80 ) goto done;
+    }
+    x = libspectrum_tape_iterator_next( &a );
+    y = libspectrum_tape_iterator_next( &b );
+  }
+  if( x || y ) goto done;
+  /* Genuine concatenation boundaries must still emit their own PZXT. */
+  x = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_CONCAT );
+  libspectrum_tape_append_block( source, x );
+  libspectrum_free( output ); output = NULL; length = 0;
+  if( libspectrum_tape_write( &output, &length, source,
+                              LIBSPECTRUM_ID_TAPE_PZX ) ||
+      length != sizeof( input ) - 1 + 10 ||
+      memcmp( output, input, sizeof( input ) - 1 ) ||
+      memcmp( output + sizeof( input ) - 1, "PZXT\x02\0\0\0\x01\0", 10 ) )
+    goto done;
+  result = TEST_PASS;
+done:
+  libspectrum_free( output );
+  libspectrum_tape_free( source ); libspectrum_tape_free( dest );
+  return result;
+}
+
+test_return_t
+pzx_write_rejects_unsupported( void )
+{
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape_block *block;
+  libspectrum_byte *output = NULL;
+  size_t length = 0, i;
+  test_return_t result = TEST_FAIL;
+  static const libspectrum_tape_type types[] = {
+    LIBSPECTRUM_TAPE_BLOCK_JUMP, LIBSPECTRUM_TAPE_BLOCK_LOOP_START,
+    LIBSPECTRUM_TAPE_BLOCK_RAW_DATA, LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA,
+    LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL
+  };
+  for( i = 0; i < sizeof( types ) / sizeof( types[0] ); i++ ) {
+    block = libspectrum_tape_block_alloc( types[i] );
+    libspectrum_tape_append_block( tape, block );
+    if( libspectrum_tape_write( &output, &length, tape, LIBSPECTRUM_ID_TAPE_PZX )
+        != LIBSPECTRUM_ERROR_UNKNOWN || output != NULL ) goto done;
+    libspectrum_tape_clear( tape );
+  }
+  {
+    libspectrum_dword *pulses = libspectrum_new( libspectrum_dword, 1 );
+    size_t *repeats = libspectrum_new( size_t, 1 );
+    libspectrum_byte *original;
+    pulses[0] = 0x80000000U; repeats[0] = 1;
+    block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE );
+    libspectrum_tape_block_set_count( block, 1 );
+    libspectrum_tape_block_set_pulse_lengths( block, pulses );
+    libspectrum_tape_block_set_pulse_repeats( block, repeats );
+    libspectrum_tape_append_block( tape, block );
+    output = libspectrum_new( libspectrum_byte, 4 ); length = 4;
+    memcpy( output, "keep", 4 ); original = output;
+    if( libspectrum_tape_write( &output, &length, tape, LIBSPECTRUM_ID_TAPE_PZX )
+        != LIBSPECTRUM_ERROR_INVALID || output != original || length != 4 ||
+        memcmp( output, "keep", 4 ) ) goto done;
+  }
+  result = TEST_PASS;
+done:
+  libspectrum_free( output ); libspectrum_tape_free( tape );
+  return result;
+}
+
 test_return_t
 pzx_large_payload_bounds( void )
 {

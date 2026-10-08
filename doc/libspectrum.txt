@@ -7,8 +7,8 @@ handles:
 
 * Snapshots: .z80, .szx, .sna (all read/write), .zxs, .sp., .snp and
   +D snapshots (read only).
-* Tape images: .tzx, .tap, .spc, .sta and .ltp (read/write); CSW v1/v2
-  (read) and v2 (write); .pzx, Warajevo .tap and Z80Em (read only).
+* Tape images: .tzx, .tap, .spc, .sta, .ltp and .pzx (read/write); CSW v1/v2
+  (read) and v2 (write); Warajevo .tap and Z80Em (read only).
 * Input recordings: .rzx (read/write).
 * Disk images: .dsk (both plain and extended), .d40, .d80, .fdi, .img, .mgt,
   .opd, .sad, .scl, .td0, .trd and .udi (identification only).
@@ -1165,6 +1165,36 @@ Take the snapshot in `tape and serialise it as a `type' format file
 into `*buffer'. On entry, '*buffer' is assumed to be allocated
 '*length' bytes, and will grow if necessary; if '*length' is zero,
 '*buffer' can be uninitialised on entry.
+
+PZX output (LIBSPECTRUM_ID_TAPE_PZX) writes PZX version 1.0. It supports
+PULSE_SEQUENCE, DATA_BLOCK, PAUSE, STOP48, COMMENT (as BRWS), ARCHIVE_INFO
+(as PZXT) and CONCAT blocks, and converts ROM, TURBO and PURE_DATA blocks.
+Conversion preserves existing pulse polarity and total duration. The existing
+post-data pulse is stored in DATA.tail, up to its 65535-T-state limit. Any
+remainder is stored in a PAUS block at the same level, without adding time
+or forcing the remainder low. A zero post-data duration produces a zero tail
+and no PAUS. Native DATA tails are unchanged. Zero-duration PAUSE means STOP.
+Leading archive information supplies the initial PZXT header and title,
+rather than following an empty header. Later archive and concatenation
+boundaries remain separate. Adjacent equal-duration pulse runs are coalesced
+within each PULS block, retaining zero pulses and block polarity resets.
+Repeat counts greater than 32767 are split without changing pulse parity.
+Pulse and pause durations must fit 31 bits, DATA pulse/tail lengths must
+fit 16 bits, and the DATA bit count must fit 31 bits. Unrepresentable
+values return LIBSPECTRUM_ERROR_INVALID; unsupported block types and
+archive information IDs return LIBSPECTRUM_ERROR_UNKNOWN. No partial PZX
+output is written on failure, and writing does not move playback. Existing
+output allocations are reused from their beginning, not appended to.
+
+Legacy conversion and unspecified pause levels use independent playback
+inspection, so conversion time is proportional to the number of pulses.
+Native-only output with explicit levels does not require playback.
+Currently, DATA blocks with zero-pulse bit sequences can be written only
+on that native-only path: playback inspection cannot handle them.
+Control flow, raw recordings, CSW, generalised data and explicit signal-level
+blocks are not converted; they are rejected rather than silently dropped.
+Unknown PZX blocks/keys already discarded or normalised by the reader
+cannot be reconstructed by the writer.
 
 libspectrum_error
 libspectrum_tape_get_next_edge( libspectrum_tape_edge *edge,

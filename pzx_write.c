@@ -1,0 +1,435 @@
+/* pzx_write.c: Routines for writing PZX files
+   Copyright (c) 2026 Fredrick Meunier
+
+   This program is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; either version 2 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software Foundation,
+   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+*/
+
+#include "config.h"
+#include <string.h>
+#include "internals.h"
+#include "pzx_internals.h"
+#include "tape_block.h"
+
+typedef struct pzx_writer {
+  libspectrum_buffer *out, *body;
+  libspectrum_tape_block_state state;
+  int need_playback, level, first, last;
+} pzx_writer;
+
+typedef struct legacy_data {
+  size_t bits, pilot;
+  libspectrum_dword bit0, bit1, pilot_length, sync1, sync2, pause, tail;
+} legacy_data;
+
+static libspectrum_error
+write_chunk( pzx_writer *writer, const char *tag )
+{
+  size_t size = libspectrum_buffer_get_data_size( writer->body );
+  if( size > UINT32_MAX ) return LIBSPECTRUM_ERROR_INVALID;
+  libspectrum_buffer_write( writer->out, (const libspectrum_byte *)tag, 4 );
+  libspectrum_buffer_write_dword( writer->out, size );
+  libspectrum_buffer_write_buffer( writer->out, writer->body );
+  libspectrum_buffer_clear( writer->body );
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
+/* Durations above 65535 require a repeat prefix even for one pulse.
+   0x8000 itself denotes extended duration, not a repeat count. */
+static libspectrum_error
+write_pulse( libspectrum_buffer *body, libspectrum_dword duration, size_t count )
+{
+  if( !count || duration > PZX_VALUE_MASK ) return LIBSPECTRUM_ERROR_INVALID;
+  while( count ) {
+    size_t n = count > PZX_REPEAT_MAX ? PZX_REPEAT_MAX : count;
+    if( n != 1 || duration > 0xffff )
+      libspectrum_buffer_write_word( body, PZX_DURATION_FLAG | n );
+    if( duration < PZX_DURATION_FLAG ) {
+      libspectrum_buffer_write_word( body, duration );
+    } else {
+      libspectrum_buffer_write_word( body, PZX_DURATION_FLAG | ( duration >> 16 ) );
+      libspectrum_buffer_write_word( body, duration & 0xffff );
+    }
+    count -= n;
+  }
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
+/* Coalesce only within a block: new PULS blocks reset polarity. Keep zero
+   pulses, including all-zero blocks whose final level can matter. */
+static libspectrum_error
+write_sequence( pzx_writer *writer, libspectrum_tape_block *block )
+{
+  size_t i, count = 0;
+  libspectrum_dword duration = 0;
+  libspectrum_error error;
+  for( i = 0; i < libspectrum_tape_block_count( block ); i++ ) {
+    libspectrum_dword next = libspectrum_tape_block_pulse_lengths( block, i );
+    size_t repeats = libspectrum_tape_block_pulse_repeats( block, i );
+    if( count && ( next != duration || repeats > SIZE_MAX - count ) ) {
+      error = write_pulse( writer->body, duration, count );
+      if( error ) return error;
+      count = 0;
+    }
+    duration = next;
+    count += repeats;
+  }
+  error = write_pulse( writer->body, duration, count );
+  if( error ) return error;
+  return write_chunk( writer, PZX_PULSE );
+}
+
+static void
+write_string( libspectrum_buffer *body, const char *s )
+{
+  if( !s ) s = "";
+  libspectrum_buffer_write( body, (const libspectrum_byte *)s, strlen( s ) + 1 );
+}
+
+static libspectrum_error
+write_pause( pzx_writer *writer, libspectrum_dword duration, int level )
+{
+  libspectrum_buffer_write_dword( writer->body,
+    duration | ( level ? PZX_LEVEL_FLAG : 0 ) );
+  return write_chunk( writer, PZX_PAUSE );
+}
+
+/* Use private playback state for legacy polarity and pause levels, never
+   the caller's position, without duplicating playback boundary rules. */
+static libspectrum_error
+inspect_block( pzx_writer *writer, libspectrum_tape *tape )
+{
+  libspectrum_error error;
+  libspectrum_dword duration;
+  int flags, initial = 1;
+  do {
+    error = libspectrum_tape_get_next_edge_internal( &duration, &flags, tape,
+                                                    &writer->state );
+    if( error ) return error;
+    if( flags & LIBSPECTRUM_TAPE_FLAGS_LEVEL_LOW ) writer->level = 0;
+    else if( flags & LIBSPECTRUM_TAPE_FLAGS_LEVEL_HIGH ) writer->level = 1;
+    else if( !( flags & LIBSPECTRUM_TAPE_FLAGS_NO_EDGE ) )
+      writer->level = !writer->level;
+    if( initial ) { writer->first = writer->level; initial = 0; }
+    writer->last = writer->level;
+  } while( !( flags & LIBSPECTRUM_TAPE_FLAGS_BLOCK ) );
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
+static libspectrum_error
+validate_native_data( libspectrum_tape_block *block )
+{
+  size_t bits = libspectrum_tape_block_count( block );
+  int level = libspectrum_tape_block_level( block );
+  if( bits > PZX_VALUE_MASK ||
+      libspectrum_tape_block_data_length( block ) < ( bits + 7 ) / 8 ||
+      libspectrum_tape_block_tail_length( block ) > 0xffff ||
+      level < 0 || level > 1 ) return LIBSPECTRUM_ERROR_INVALID;
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
+/* Build one description used by both validation and serialization. */
+static libspectrum_error
+get_legacy_data( libspectrum_tape_block *block, legacy_data *data )
+{
+  libspectrum_tape_type type = libspectrum_tape_block_type( block );
+  size_t length = libspectrum_tape_block_data_length( block ), used = 8;
+  memset( data, 0, sizeof( *data ) );
+  if( type != LIBSPECTRUM_TAPE_BLOCK_ROM )
+    used = libspectrum_tape_block_bits_in_last_byte( block );
+  if( !used ) used = 8; /* TZX zero means a complete last byte. */
+  if( !length || used > 8 || length > PZX_VALUE_MASK / 8 )
+    return LIBSPECTRUM_ERROR_INVALID;
+  data->bits = ( length - 1 ) * 8 + used;
+  data->pause = libspectrum_tape_block_pause_tstates( block );
+  data->tail = data->pause > 0xffff ? 0xffff : data->pause;
+  if( type == LIBSPECTRUM_TAPE_BLOCK_ROM ) {
+    data->bit0 = LIBSPECTRUM_TAPE_TIMING_DATA0;
+    data->bit1 = LIBSPECTRUM_TAPE_TIMING_DATA1;
+    data->pilot = libspectrum_tape_block_data( block )[0] < 128 ? 8063 : 3223;
+    data->pilot_length = LIBSPECTRUM_TAPE_TIMING_PILOT;
+    data->sync1 = LIBSPECTRUM_TAPE_TIMING_SYNC1;
+    data->sync2 = LIBSPECTRUM_TAPE_TIMING_SYNC2;
+  } else {
+    data->bit0 = libspectrum_tape_block_bit0_length( block );
+    data->bit1 = libspectrum_tape_block_bit1_length( block );
+  }
+  if( type == LIBSPECTRUM_TAPE_BLOCK_TURBO ) {
+    data->pilot = libspectrum_tape_block_pilot_pulses( block );
+    data->pilot_length = libspectrum_tape_block_pilot_length( block );
+    data->sync1 = libspectrum_tape_block_sync1_length( block );
+    data->sync2 = libspectrum_tape_block_sync2_length( block );
+  }
+  if( data->pause > PZX_VALUE_MASK || data->bit0 > 0xffff || data->bit1 > 0xffff ||
+      data->pilot_length > PZX_VALUE_MASK || data->sync1 > PZX_VALUE_MASK ||
+      data->sync2 > PZX_VALUE_MASK ) return LIBSPECTRUM_ERROR_INVALID;
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
+static libspectrum_error
+validate_sequence( libspectrum_tape_block *block )
+{
+  size_t i, count = libspectrum_tape_block_count( block );
+  if( !count ) return LIBSPECTRUM_ERROR_INVALID;
+  for( i = 0; i < count; i++ )
+    if( !libspectrum_tape_block_pulse_repeats( block, i ) ||
+        libspectrum_tape_block_pulse_lengths( block, i ) > PZX_VALUE_MASK )
+      return LIBSPECTRUM_ERROR_INVALID;
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
+static libspectrum_error
+validate_pause( pzx_writer *writer, libspectrum_tape_block *block )
+{
+  int level = libspectrum_tape_block_level( block );
+  libspectrum_dword pause = libspectrum_tape_block_pause_tstates( block );
+  if( level == -1 && pause ) writer->need_playback = 1;
+  if( pause > PZX_VALUE_MASK || level < -1 || level > 1 )
+    return LIBSPECTRUM_ERROR_INVALID;
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
+static libspectrum_error
+validate_archive( libspectrum_tape_block *block )
+{
+  size_t i, titles = 0;
+  for( i = 0; i < libspectrum_tape_block_count( block ); i++ ) {
+    int id = libspectrum_tape_block_ids( block, i );
+    if( id == 0 ) titles++;
+    if( id != 0 && !internal_pzx_archive_name( id ) )
+      return LIBSPECTRUM_ERROR_UNKNOWN;
+  }
+  return titles > 1 ? LIBSPECTRUM_ERROR_UNKNOWN : LIBSPECTRUM_ERROR_NONE;
+}
+
+static libspectrum_error
+validate_block( pzx_writer *writer, libspectrum_tape_block *block )
+{
+  legacy_data data;
+  switch( libspectrum_tape_block_type( block ) ) {
+  case LIBSPECTRUM_TAPE_BLOCK_ROM:
+  case LIBSPECTRUM_TAPE_BLOCK_TURBO:
+  case LIBSPECTRUM_TAPE_BLOCK_PURE_DATA:
+    writer->need_playback = 1;
+    return get_legacy_data( block, &data );
+  case LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE: return validate_sequence( block );
+  case LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK: return validate_native_data( block );
+  case LIBSPECTRUM_TAPE_BLOCK_PAUSE: return validate_pause( writer, block );
+  case LIBSPECTRUM_TAPE_BLOCK_ARCHIVE_INFO: return validate_archive( block );
+  case LIBSPECTRUM_TAPE_BLOCK_STOP48:
+  case LIBSPECTRUM_TAPE_BLOCK_COMMENT:
+  case LIBSPECTRUM_TAPE_BLOCK_CONCAT: return LIBSPECTRUM_ERROR_NONE;
+  default:
+    libspectrum_print_error( LIBSPECTRUM_ERROR_UNKNOWN,
+      "internal_pzx_write: unsupported tape block 0x%02x",
+      libspectrum_tape_block_type( block ) );
+    return LIBSPECTRUM_ERROR_UNKNOWN;
+  }
+}
+
+static libspectrum_error
+prepare_playback( pzx_writer *writer, libspectrum_tape *tape )
+{
+  libspectrum_tape_iterator it;
+  libspectrum_tape_block *block;
+  if( !writer->need_playback ) return LIBSPECTRUM_ERROR_NONE;
+  /* Native-only writing accepts zero-pulse bit encodings, but playback
+     inspection currently cannot handle them. */
+  for( block = libspectrum_tape_iterator_init( &it, tape ); block;
+       block = libspectrum_tape_iterator_next( &it ) ) {
+    if( libspectrum_tape_block_type( block ) == LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK &&
+        libspectrum_tape_block_count( block ) &&
+        ( !libspectrum_tape_block_bit0_pulse_count( block ) ||
+          !libspectrum_tape_block_bit1_pulse_count( block ) ) )
+      return LIBSPECTRUM_ERROR_UNKNOWN;
+  }
+  writer->state.force_low_level = 1;
+  if( libspectrum_tape_iterator_init( &it, tape ) &&
+      !libspectrum_tape_block_internal_init( &writer->state, tape ) )
+    return LIBSPECTRUM_ERROR_INVALID;
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
+static void
+write_data_header( libspectrum_buffer *body, size_t bits, int level,
+                   libspectrum_dword tail, libspectrum_byte p0,
+                   libspectrum_byte p1 )
+{
+  libspectrum_buffer_write_dword( body, bits | ( level ? PZX_LEVEL_FLAG : 0 ) );
+  libspectrum_buffer_write_word( body, tail );
+  libspectrum_buffer_write_byte( body, p0 );
+  libspectrum_buffer_write_byte( body, p1 );
+}
+
+static libspectrum_error
+write_native_data( pzx_writer *writer, libspectrum_tape_block *block )
+{
+  size_t i, bits = libspectrum_tape_block_count( block );
+  libspectrum_byte p0 = libspectrum_tape_block_bit0_pulse_count( block );
+  libspectrum_byte p1 = libspectrum_tape_block_bit1_pulse_count( block );
+  write_data_header( writer->body, bits, libspectrum_tape_block_level( block ),
+                    libspectrum_tape_block_tail_length( block ), p0, p1 );
+  for( i = 0; i < p0; i++ )
+    libspectrum_buffer_write_word( writer->body,
+      libspectrum_tape_block_bit0_pulses( block, i ) );
+  for( i = 0; i < p1; i++ )
+    libspectrum_buffer_write_word( writer->body,
+      libspectrum_tape_block_bit1_pulses( block, i ) );
+  libspectrum_buffer_write( writer->body, libspectrum_tape_block_data( block ),
+                            ( bits + 7 ) / 8 );
+  return write_chunk( writer, PZX_DATA );
+}
+
+static libspectrum_error
+write_legacy_pilot( pzx_writer *writer, const legacy_data *data )
+{
+  libspectrum_error error;
+  if( writer->first ) {
+    error = write_pulse( writer->body, 0, 1 );
+    if( error ) return error;
+  }
+  if( data->pilot ) {
+    error = write_pulse( writer->body, data->pilot_length, data->pilot );
+    if( error ) return error;
+  }
+  error = write_pulse( writer->body, data->sync1, 1 );
+  if( error ) return error;
+  error = write_pulse( writer->body, data->sync2, 1 );
+  if( error ) return error;
+  return write_chunk( writer, PZX_PULSE );
+}
+
+static libspectrum_error
+write_legacy_data( pzx_writer *writer, libspectrum_tape_block *block )
+{
+  legacy_data data;
+  libspectrum_error error = get_legacy_data( block, &data );
+  if( error ) return error;
+  if( libspectrum_tape_block_type( block ) != LIBSPECTRUM_TAPE_BLOCK_PURE_DATA ) {
+    error = write_legacy_pilot( writer, &data );
+    if( error ) return error;
+  }
+  /* Consume existing post-data time in the tail, continuing at the same
+     level in PAUS if necessary. Never add a synthetic terminating pulse. */
+  write_data_header( writer->body, data.bits,
+                    writer->first ^ ( data.pilot & 1 ), data.tail, 2, 2 );
+  libspectrum_buffer_write_word( writer->body, data.bit0 );
+  libspectrum_buffer_write_word( writer->body, data.bit0 );
+  libspectrum_buffer_write_word( writer->body, data.bit1 );
+  libspectrum_buffer_write_word( writer->body, data.bit1 );
+  libspectrum_buffer_write( writer->body, libspectrum_tape_block_data( block ),
+                            ( data.bits + 7 ) / 8 );
+  error = write_chunk( writer, PZX_DATA );
+  if( error ) return error;
+  if( data.pause > data.tail )
+    return write_pause( writer, data.pause - data.tail, writer->last );
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
+static libspectrum_error
+write_archive( pzx_writer *writer, libspectrum_tape_block *block )
+{
+  size_t i, count = libspectrum_tape_block_count( block );
+  libspectrum_buffer_write_byte( writer->body, PZX_VERSION_MAJOR );
+  libspectrum_buffer_write_byte( writer->body, PZX_VERSION_MINOR );
+  /* Title precedes all key/value pairs, even if absent in the source. */
+  for( i = 0; i < count; i++ )
+    if( libspectrum_tape_block_ids( block, i ) == 0 ) break;
+  write_string( writer->body,
+                i < count ? libspectrum_tape_block_texts( block, i ) : "" );
+  for( i = 0; i < count; i++ ) {
+    int id = libspectrum_tape_block_ids( block, i );
+    if( id == 0 ) continue;
+    write_string( writer->body, internal_pzx_archive_name( id ) );
+    write_string( writer->body, libspectrum_tape_block_texts( block, i ) );
+  }
+  return write_chunk( writer, PZX_HEADER );
+}
+
+static libspectrum_error
+write_stop( pzx_writer *writer, int flags )
+{
+  libspectrum_buffer_write_word( writer->body, flags );
+  return write_chunk( writer, PZX_STOP );
+}
+
+static libspectrum_error
+write_block( pzx_writer *writer, libspectrum_tape_block *block )
+{
+  libspectrum_dword pause;
+  const char *text;
+  switch( libspectrum_tape_block_type( block ) ) {
+  case LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE: return write_sequence( writer, block );
+  case LIBSPECTRUM_TAPE_BLOCK_ROM:
+  case LIBSPECTRUM_TAPE_BLOCK_TURBO:
+  case LIBSPECTRUM_TAPE_BLOCK_PURE_DATA: return write_legacy_data( writer, block );
+  case LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK: return write_native_data( writer, block );
+  case LIBSPECTRUM_TAPE_BLOCK_PAUSE:
+    pause = libspectrum_tape_block_pause_tstates( block );
+    if( !pause ) return write_stop( writer, PZX_STOP_ALWAYS );
+    return write_pause( writer, pause, writer->first );
+  case LIBSPECTRUM_TAPE_BLOCK_STOP48: return write_stop( writer, PZX_STOP_48K );
+  case LIBSPECTRUM_TAPE_BLOCK_COMMENT:
+    text = libspectrum_tape_block_text( block );
+    if( text ) libspectrum_buffer_write( writer->body,
+      (const libspectrum_byte *)text, strlen( text ) );
+    return write_chunk( writer, PZX_BROWSE );
+  case LIBSPECTRUM_TAPE_BLOCK_CONCAT:
+    libspectrum_buffer_write_byte( writer->body, PZX_VERSION_MAJOR );
+    libspectrum_buffer_write_byte( writer->body, PZX_VERSION_MINOR );
+    return write_chunk( writer, PZX_HEADER );
+  case LIBSPECTRUM_TAPE_BLOCK_ARCHIVE_INFO: return write_archive( writer, block );
+  default: return LIBSPECTRUM_ERROR_LOGIC;
+  }
+}
+
+libspectrum_error
+internal_pzx_write( libspectrum_buffer *out, libspectrum_tape *tape )
+{
+  libspectrum_tape_iterator it;
+  libspectrum_tape_block *block;
+  pzx_writer writer;
+  libspectrum_error error = LIBSPECTRUM_ERROR_NONE;
+  memset( &writer, 0, sizeof( writer ) );
+  writer.out = out;
+  writer.body = libspectrum_buffer_alloc();
+  for( block = libspectrum_tape_iterator_init( &it, tape ); block;
+       block = libspectrum_tape_iterator_next( &it ) ) {
+    error = validate_block( &writer, block );
+    if( error ) goto done;
+  }
+  error = prepare_playback( &writer, tape );
+  if( error ) goto done;
+  /* Leading archive information supplies the initial title/header itself. */
+  block = libspectrum_tape_iterator_init( &it, tape );
+  if( !block || libspectrum_tape_block_type( block ) != LIBSPECTRUM_TAPE_BLOCK_ARCHIVE_INFO ) {
+    libspectrum_buffer_write_byte( writer.body, PZX_VERSION_MAJOR );
+    libspectrum_buffer_write_byte( writer.body, PZX_VERSION_MINOR );
+    error = write_chunk( &writer, PZX_HEADER );
+    if( error ) goto done;
+  }
+  for( ; block; block = libspectrum_tape_iterator_next( &it ) ) {
+    if( writer.need_playback ) {
+      error = inspect_block( &writer, tape );
+      if( error ) goto done;
+    } else if( libspectrum_tape_block_type( block ) == LIBSPECTRUM_TAPE_BLOCK_PAUSE ) {
+      writer.first = libspectrum_tape_block_level( block );
+    }
+    error = write_block( &writer, block );
+    if( error ) goto done;
+  }
+done:
+  libspectrum_buffer_free( writer.body );
+  return error;
+}
