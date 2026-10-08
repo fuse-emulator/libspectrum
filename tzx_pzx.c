@@ -302,9 +302,11 @@ write_pause( gdb_writer *writer, libspectrum_tape_block *block )
   libspectrum_dword duration = libspectrum_tape_block_pause_tstates( block );
   if( level < 0 || level > 1 || duration > PZX_VALUE_MASK )
     return LIBSPECTRUM_ERROR_INVALID;
-  if( !duration ) {
+  /* Ordinary TZX pauses are low holds in whole milliseconds. */
+  if( !duration ||
+      ( !level && duration % 3500 == 0 && duration / 3500 <= 65535 ) ) {
     libspectrum_buffer_write_byte( writer->out, LIBSPECTRUM_TAPE_BLOCK_PAUSE );
-    libspectrum_buffer_write_word( writer->out, 0 );
+    libspectrum_buffer_write_word( writer->out, duration / 3500 );
     return LIBSPECTRUM_ERROR_NONE;
   }
   return emit_hold( writer, duration, level );

@@ -292,6 +292,7 @@ test_return_t tape_pure_tone_block_pulse_length_and_count_getter_setter( void );
 test_return_t tape_pure_data_block_bit0_length_bit1_length_bits_in_last_byte_pause_getter_setter( void );
 test_return_t tape_pause_block_pause_length_and_level_getter_setter( void );
 test_return_t tape_rom_block_data_data_length_and_pause_getter_setter( void );
+test_return_t tzx_write_pause_representation( void );
 test_return_t tzx_write_preserves_pzx_style_initial_pulse_levels( void );
 test_return_t tzx_pzx_gdb_holds_and_zero_pulses( void );
 test_return_t tzx_pzx_gdb_repeat_splitting( void );

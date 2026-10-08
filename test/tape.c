@@ -8,6 +8,58 @@
 #include "common.h"
 #include "test.h"
 
+test_return_t
+tzx_write_pause_representation( void )
+{
+  static const struct {
+    int level;
+    libspectrum_dword duration;
+    int ordinary;
+  } cases[] = {
+    { 0, 3500, 1 }, { 0, 65535U * 3500, 1 },
+    { 0, 3501, 0 }, { 1, 3500, 0 }, { 0, 65536U * 3500, 0 },
+    { 0, 1, 0 }, { -1, 0, 1 }, { 0, 0, 1 }, { 1, 0, 1 }
+  };
+  libspectrum_tape *source = libspectrum_tape_alloc(), *dest = libspectrum_tape_alloc();
+  libspectrum_byte *output = NULL;
+  size_t length = 0, i;
+  test_return_t result = TEST_FAIL;
+  for( i = 0; i < sizeof( cases ) / sizeof( cases[0] ); i++ ) {
+    libspectrum_tape_block *block;
+    libspectrum_tape_edge edge;
+    libspectrum_qword duration = 0;
+    size_t events = 0;
+    libspectrum_free( output ); output = NULL; length = 0;
+    libspectrum_tape_clear( source ); libspectrum_tape_clear( dest );
+    block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PAUSE );
+    libspectrum_tape_block_set_level( block, cases[i].level );
+    libspectrum_set_pause_tstates( block, cases[i].duration );
+    libspectrum_tape_append_block( source, block );
+    if( libspectrum_tape_write( &output, &length, source, LIBSPECTRUM_ID_TAPE_TZX ) ||
+        length < 13 || output[10] != ( cases[i].ordinary ?
+          LIBSPECTRUM_TAPE_BLOCK_PAUSE : LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA ) )
+      goto done;
+    if( cases[i].ordinary && ( length != 13 ||
+        output[11] + 256U * output[12] != cases[i].duration / 3500 ) ) goto done;
+    if( libspectrum_tape_read( dest, output, length, LIBSPECTRUM_ID_TAPE_TZX, NULL ) )
+      goto done;
+    do {
+      if( ++events > 10000 || libspectrum_tape_get_next_edge( &edge, dest ) ) goto done;
+      duration += edge.tstates;
+      if( edge.tstates && edge.level != ( cases[i].level ?
+          LIBSPECTRUM_TAPE_SIGNAL_HIGH : LIBSPECTRUM_TAPE_SIGNAL_LOW ) ) goto done;
+    } while( !( edge.flags & ( LIBSPECTRUM_TAPE_FLAGS_TAPE | LIBSPECTRUM_TAPE_FLAGS_STOP ) ) );
+    if( duration != cases[i].duration ||
+        ( !duration && !( edge.flags & LIBSPECTRUM_TAPE_FLAGS_STOP ) ) ) goto done;
+  }
+  result = TEST_PASS;
+done:
+  if( result != TEST_PASS )
+    fprintf( stderr, "%s: TZX pause representation case %lu failed\n", progname, (unsigned long)i );
+  libspectrum_free( output ); libspectrum_tape_free( source ); libspectrum_tape_free( dest );
+  return result;
+}
+
 /* Compare time spent at each level, not representation-specific zero-time
    edges or block boundaries. Adjacent pulses at the same level are merged. */
 typedef struct pzx_test_run {

@@ -1196,8 +1196,11 @@ blocks are not converted; they are rejected rather than silently dropped.
 Unknown PZX blocks/keys already discarded or normalised by the reader
 cannot be reconstructed by the writer.
 
-When writing TZX, PZX-style PULSE_SEQUENCE and DATA_BLOCK blocks, and
-PAUSE blocks with explicit levels, use Generalised Data Blocks (ID 0x19).
+When writing TZX, PZX-style PULSE_SEQUENCE and DATA_BLOCK blocks use
+Generalised Data Blocks (ID 0x19). Explicit-level PAUSE blocks use ordinary
+TZX pauses (ID 0x20) when low and exactly representable as 1..65535 whole
+milliseconds. High holds, fractional milliseconds and longer explicit holds
+use GDB; zero-duration pauses remain ordinary stop blocks regardless of level.
 Symbol flags carry polarity directly; no automatic Set Signal Level or CSW
 blocks are needed. Long holds use 16-bit pieces with continuation symbols.
 Symbol repetitions are split at 65535, and alphabets exceeding 256 symbols

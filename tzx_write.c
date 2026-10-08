@@ -490,6 +490,13 @@ tzx_write_generalised_data( libspectrum_tape_block *block,
 static void
 tzx_write_pause( libspectrum_tape_block *block, libspectrum_buffer *buffer )
 {
+  /* A zero-duration pause is a stop, regardless of unspecified polarity. */
+  if( !libspectrum_tape_block_pause_tstates( block ) ) {
+    libspectrum_buffer_write_byte( buffer, LIBSPECTRUM_TAPE_BLOCK_PAUSE );
+    libspectrum_buffer_write_word( buffer, 0 );
+    return;
+  }
+
   /* High pause when represented in the TZX format is really a set signal level
      1 and then a pulse as TZX format says that all pauses are low, a don't care
      pause is a pulse too */

@@ -264,6 +264,7 @@ test_description tests[] = {
   TEST_ENTRY( snap_interface2_active_and_rom_getter_setter, "Snap interface2_active flag and interface2_rom pointer getter/setter" ),
   TEST_ENTRY( snap_joystick_active_count_list_and_inputs_getter_setter, "Snap joystick_active_count, joystick_list, and joystick_inputs getter/setter" ),
   TEST_ENTRY( tape_rom_block_data_data_length_and_pause_getter_setter, "Tape ROM block data, data_length, and pause getter/setter" ),
+  TEST_ENTRY( tzx_write_pause_representation, "TZX pauses use ordinary blocks when exact, otherwise GDB; zero means stop" ),
   TEST_ENTRY( tzx_write_preserves_pzx_style_initial_pulse_levels, "TZX writing preserves PZX-style initial pulse levels" ),
   TEST_ENTRY( tzx_pzx_gdb_holds_and_zero_pulses, "PZX-to-TZX GDB preserves long holds, boundaries and zero pulses" ),
   TEST_ENTRY( tzx_pzx_gdb_repeat_splitting, "PZX-to-TZX GDB splits symbol repetitions without truncation" ),
