@@ -345,6 +345,10 @@ libspectrum_tape_write( libspectrum_byte **buffer, size_t *length,
   case LIBSPECTRUM_ID_TAPE_STA:
   case LIBSPECTRUM_ID_TAPE_LTP:
     error = internal_tap_write( new_buffer, tape, type );
+    if( error ) {
+      libspectrum_buffer_free( new_buffer );
+      return error;
+    }
     break;
 
   case LIBSPECTRUM_ID_TAPE_TZX:

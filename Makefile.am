@@ -52,6 +52,7 @@ libspectrum_la_SOURCES = bzip2.c \
 			 symbol_table.c \
 			 szx.c \
 			 tap.c \
+			 tap_pzx.c \
 			 tape.c \
 			 tape_accessors.c \
 			 tape_block.c \

@@ -281,6 +281,9 @@ internal_tap_write( libspectrum_buffer *buffer, libspectrum_tape *tape,
                     libspectrum_id_t type );
 
 libspectrum_error
+internal_tap_write_pzx( libspectrum_buffer *buffer, libspectrum_tape *tape );
+
+libspectrum_error
 internal_tzx_read( libspectrum_tape *tape, const libspectrum_byte *buffer,
 		   const size_t length );
 

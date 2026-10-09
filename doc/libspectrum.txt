@@ -1196,6 +1196,17 @@ blocks are not converted; they are rejected rather than silently dropped.
 Unknown PZX blocks/keys already discarded or normalised by the reader
 cannot be reconstructed by the writer.
 
+Prototype TAP export recognises Fuse-style PZX pulse recordings of standard
+ROM blocks. It requires at least 256 pilot pulses, ordered sync pulses,
+paired data pulses within 5% of standard timing, complete bytes and a valid
+XOR checksum. Flags must be 00 or FF; flag-00 headers must contain 19 bytes.
+Recognition spans pulse chunks and accepts ROM tails and silence between
+blocks. Timing, polarity, pauses and metadata cannot be retained in TAP.
+Unrecognised or incomplete recordings fail without exposing partial output.
+This deliberately narrow prototype does not decode native PZX DATA blocks,
+mixed decoded/recorded tapes, custom loaders or control-flow blocks, and does
+not change the existing export path for tapes without native PZX waveforms.
+
 When writing TZX, PZX-style PULSE_SEQUENCE and DATA_BLOCK blocks use
 Generalised Data Blocks (ID 0x19). Explicit-level PAUSE blocks use ordinary
 TZX pauses (ID 0x20) when low and exactly representable as 1..65535 whole

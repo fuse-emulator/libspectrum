@@ -45,6 +45,7 @@ test_test_SOURCES = \
 	test/tape.c \
 	test/pzx-write.c \
 	test/csw-write.c \
+	test/tap-pzx.c \
 	test/timings.c \
 	test/utilities.c \
 	test/identify.c
@@ -160,7 +161,9 @@ EXTRA_DIST += \
 	test/turbo-zeropilot.tzx \
 	test/writeprotected.mdr \
 	test/zero-tail.pzx \
-	test/pzx-archive-info-tags.pzx
+	test/pzx-archive-info-tags.pzx \
+	test/fuse-rom-recording.pzx \
+	test/fuse-rom-recording.tap
 
 CLEANFILES += \
 	test/.libs/test \
