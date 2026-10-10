@@ -325,6 +325,112 @@ done:
 }
 
 test_return_t
+pzx_write_csw_initial_levels( void )
+{
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape *dest = libspectrum_tape_alloc();
+  libspectrum_byte *out = NULL;
+  libspectrum_tape_edge edge;
+  size_t length = 0, count, i;
+  int initial, following, pause, metadata;
+  test_return_t result = TEST_FAIL;
+  for( initial = 0; initial < 3; initial++ )
+  for( count = 1; count <= 3; count++ )
+  for( following = 0; following < 3; following++ )
+  for( pause = 0; pause < 2; pause++ )
+  for( metadata = 0; metadata < 2; metadata++ ) {
+    libspectrum_tape_block *b;
+    libspectrum_byte *data = libspectrum_new( libspectrum_byte, count );
+    int level = initial == 2 ? 0 : initial;
+    libspectrum_tape_clear( tape ); libspectrum_tape_clear( dest );
+    if( initial != 2 ) {
+      b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL );
+      libspectrum_tape_block_set_level( b, initial );
+      libspectrum_tape_append_block( tape, b );
+    }
+    b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_TZX_CSW );
+    for( i = 0; i < count; i++ ) data[i] = 101 + i;
+    libspectrum_tape_block_set_data( b, data );
+    libspectrum_tape_block_set_data_length( b, count );
+    libspectrum_tape_block_set_sample_rate( b, 3500000 );
+    libspectrum_tape_block_set_csw_pulses( b, count );
+    libspectrum_set_pause_tstates( b, pause ? 3500 : 0 );
+    libspectrum_tape_append_block( tape, b );
+    if( metadata ) {
+      char *text = libspectrum_new( char, sizeof( "CSW boundary" ) );
+      strcpy( text, "CSW boundary" );
+      b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_COMMENT );
+      libspectrum_tape_block_set_text( b, text );
+      libspectrum_tape_append_block( tape, b );
+    }
+    if( following == 1 ) {
+      b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PURE_TONE );
+      libspectrum_tape_block_set_count( b, 2 );
+      libspectrum_tape_block_set_pulse_length( b, 1000 );
+      libspectrum_tape_append_block( tape, b );
+    } else if( following == 2 ) {
+      b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_ROM );
+      data = libspectrum_new( libspectrum_byte, 1 ); data[0] = 0xff;
+      libspectrum_tape_block_set_data( b, data );
+      libspectrum_tape_block_set_data_length( b, 1 );
+      libspectrum_tape_append_block( tape, b );
+    }
+    if( libspectrum_tape_nth_block( tape, 0 ) ||
+        libspectrum_tape_write( &out, &length, tape, LIBSPECTRUM_ID_TAPE_PZX ) ||
+        libspectrum_tape_read( dest, out, length, LIBSPECTRUM_ID_TAPE_PZX, NULL ) )
+      goto done;
+    if( initial != 2 && libspectrum_tape_get_next_edge( &edge, tape ) ) goto done;
+    for( i = 0; i < count; i++ ) {
+      if( libspectrum_tape_get_next_edge( &edge, tape ) ||
+          edge.tstates != 101 + i || (int)edge.level != ( level ^ ( i & 1 ) ) ||
+          ( !i && edge.transition != LIBSPECTRUM_TAPE_TRANSITION_NONE ) ) goto done;
+      if( libspectrum_tape_get_next_edge( &edge, dest ) ||
+          edge.tstates != 101 + i || (int)edge.level != ( level ^ ( i & 1 ) ) )
+        goto done;
+    }
+    /* A zero pause adds no sample; a nonzero pause still finishes low. */
+    if( libspectrum_tape_get_next_edge( &edge, tape ) ||
+        edge.tstates != ( pause ? 3500U : 0 ) ||
+        ( pause && edge.level != LIBSPECTRUM_TAPE_SIGNAL_LOW ) ||
+        !( edge.flags & LIBSPECTRUM_TAPE_FLAGS_BLOCK ) ) goto done;
+    if( pause && ( libspectrum_tape_get_next_edge( &edge, dest ) ||
+        edge.tstates != 3500 || edge.level != LIBSPECTRUM_TAPE_SIGNAL_LOW ) )
+      goto done;
+    if( metadata && ( libspectrum_tape_get_next_edge( &edge, tape ) ||
+                      edge.tstates ) ) goto done;
+    if( following ) {
+      /* Preserve the existing nonzero-pause reset of the next block. */
+      int next_level = pause ? 0 : level ^ ( count & 1 );
+      libspectrum_dword duration = following == 1 ? 1000 : 2168;
+      if( libspectrum_tape_get_next_edge( &edge, tape ) ||
+          edge.tstates != duration || (int)edge.level != next_level ) {
+        fprintf( stderr, "%s: source follower %u/%d expected %u/%d\n",
+                 progname, edge.tstates, edge.level, duration, next_level );
+        goto done;
+      }
+      for( i = 0; i < 10; i++ ) {
+        if( libspectrum_tape_get_next_edge( &edge, dest ) ) goto done;
+        if( edge.tstates ) break;
+      }
+      if( i == 10 || edge.tstates != duration || (int)edge.level != next_level ) {
+        fprintf( stderr, "%s: PZX follower %u/%d expected %u/%d\n",
+                 progname, edge.tstates, edge.level, duration, next_level );
+        goto done;
+      }
+    }
+    libspectrum_free( out ); out = NULL; length = 0;
+  }
+  result = TEST_PASS;
+done:
+  if( result != TEST_PASS )
+    fprintf( stderr, "%s: CSW initial=%d count=%lu following=%d pause=%d metadata=%d failed\n",
+             progname, initial, (unsigned long)count, following, pause, metadata );
+  libspectrum_free( out );
+  libspectrum_tape_free( tape ); libspectrum_tape_free( dest );
+  return result;
+}
+
+test_return_t
 pzx_write_recordings( void )
 {
   libspectrum_tape *tape = libspectrum_tape_alloc();

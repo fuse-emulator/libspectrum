@@ -1473,10 +1473,10 @@ tzx_csw_single_pulse_level( void )
     if( libspectrum_tape_get_next_edge( &edge, tape ) ) goto done;
     if( !edge.tstates ) continue;
     if( seen == 0 && ( edge.tstates != 79 ||
-         edge.level != LIBSPECTRUM_TAPE_SIGNAL_LOW ||
-         edge.transition != LIBSPECTRUM_TAPE_TRANSITION_TOGGLE ) ) goto done;
+         edge.level != LIBSPECTRUM_TAPE_SIGNAL_HIGH ||
+         edge.transition != LIBSPECTRUM_TAPE_TRANSITION_NONE ) ) goto done;
     if( seen == 1 && ( edge.tstates != 10 ||
-         edge.level != LIBSPECTRUM_TAPE_SIGNAL_HIGH ) ) goto done;
+         edge.level != LIBSPECTRUM_TAPE_SIGNAL_LOW ) ) goto done;
     seen++;
   }
   if( seen == 2 ) r = TEST_PASS;
@@ -1526,7 +1526,8 @@ done:
   return r;
 }
 
-/* A sole CSW pulse must close at its own end, not at a terminal zero event. */
+/* A sole CSW pulse holds the incoming level. The terminal zero-time event
+   closes it after its recorded duration without adding elapsed time. */
 test_return_t
 tzx_csw_single_final_pulse_edge( void )
 {
@@ -1547,9 +1548,14 @@ tzx_csw_single_final_pulse_edge( void )
         libspectrum_tape_get_next_edge( &edge, tape ) ||
         libspectrum_tape_get_next_edge( &edge, tape ) ||
         edge.tstates != 79 ||
+        edge.level != ( i ? LIBSPECTRUM_TAPE_SIGNAL_HIGH :
+                             LIBSPECTRUM_TAPE_SIGNAL_LOW ) ||
+        edge.transition != LIBSPECTRUM_TAPE_TRANSITION_NONE ) goto done;
+    if( libspectrum_tape_get_next_edge( &edge, tape ) || edge.tstates ||
+        edge.transition != LIBSPECTRUM_TAPE_TRANSITION_TOGGLE ||
         edge.level != ( i ? LIBSPECTRUM_TAPE_SIGNAL_LOW :
                              LIBSPECTRUM_TAPE_SIGNAL_HIGH ) ||
-        edge.transition != LIBSPECTRUM_TAPE_TRANSITION_TOGGLE ) goto done;
+        !( edge.flags & LIBSPECTRUM_TAPE_FLAGS_TAPE ) ) goto done;
     libspectrum_tape_clear( tape );
   }
   r = TEST_PASS;
@@ -1558,6 +1564,99 @@ done:
     fprintf( stderr, "%s: single CSW pulse lost its closing edge\n", progname );
   libspectrum_tape_free( tape );
   return r;
+}
+
+/* Return timed samples without confusing metadata and tail events with
+   recorded pulses. A timed event may itself carry end-of-tape. */
+static int
+csw_test_next_sample( libspectrum_tape *tape, libspectrum_tape_edge *edge,
+                      int *ended )
+{
+  size_t i;
+  if( *ended ) return 0;
+  for( i = 0; i < 16; i++ ) {
+    if( libspectrum_tape_get_next_edge( edge, tape ) ) return -1;
+    if( edge->flags & LIBSPECTRUM_TAPE_FLAGS_TAPE ) *ended = 1;
+    if( edge->tstates ) return 1;
+    if( *ended ) return 0;
+  }
+  return -1;
+}
+
+/* Synthetic coverage of bug #528: three short pulses followed by a long
+   pulse, with no program content. At 44100 Hz, pulses of 13, 17, 19 and
+   50000 samples total 3972142 T-states with the timing remainder carried.
+   The final transition must occur before the long pulse, not at end-of-tape. */
+test_return_t
+tzx_csw_bug_528_waveform( void )
+{
+  static const libspectrum_byte pulses[] = {
+    13, 17, 19, 0, 0x50, 0xc3, 0, 0
+  };
+  static const libspectrum_byte tzx[] = {
+    'Z','X','T','a','p','e','!',0x1a,1,20,
+    0x18,18,0,0,0,0,0,0x44,0xac,0,1,4,0,0,0,
+    13,17,19,0,0x50,0xc3,0,0
+  };
+  static const libspectrum_dword durations[] = { 1031, 1349, 1508, 3968254 };
+  libspectrum_byte csw[60] = { 0 };
+  libspectrum_tape *tapes[4];
+  libspectrum_tape_edge edges[4];
+  libspectrum_byte *output = NULL;
+  size_t output_length = 0, i, count = 0;
+  libspectrum_qword duration = 0;
+  int ended[4] = { 0, 0, 0, 0 }, next[4];
+  test_return_t result = TEST_FAIL;
+  for( i = 0; i < 4; i++ ) tapes[i] = libspectrum_tape_alloc();
+  memcpy( csw, "Compressed Square Wave\x1a", 23 );
+  csw[23] = 2;
+  csw[25] = 0x44; csw[26] = 0xac;
+  csw[29] = 4; csw[33] = 1;
+  memcpy( csw + 52, pulses, sizeof( pulses ) );
+  if( libspectrum_tape_read( tapes[0], csw, sizeof( csw ),
+                             LIBSPECTRUM_ID_TAPE_CSW, NULL ) ||
+      libspectrum_tape_read( tapes[1], tzx, sizeof( tzx ),
+                             LIBSPECTRUM_ID_TAPE_TZX, NULL ) ) goto done;
+  for( i = 0; i < 2; i++ ) {
+    if( libspectrum_tape_write( &output, &output_length, tapes[i],
+                                LIBSPECTRUM_ID_TAPE_PZX ) ||
+        libspectrum_tape_read( tapes[i + 2], output, output_length,
+                               LIBSPECTRUM_ID_TAPE_PZX, NULL ) ) goto done;
+    libspectrum_free( output ); output = NULL; output_length = 0;
+  }
+  for( ;; ) {
+    for( i = 0; i < 4; i++ ) {
+      next[i] = csw_test_next_sample( tapes[i], &edges[i], &ended[i] );
+      if( next[i] < 0 || next[i] != next[0] ) goto done;
+    }
+    if( !next[0] ) break;
+    if( ++count > 4 ) goto done;
+    for( i = 0; i < 4; i++ ) {
+      if( edges[i].tstates != durations[count - 1] ||
+          edges[i].level != ( count & 1 ? LIBSPECTRUM_TAPE_SIGNAL_LOW :
+                                        LIBSPECTRUM_TAPE_SIGNAL_HIGH ) ) goto done;
+      /* PZX may encode the same edge as an explicit forced high level. */
+      if( count == 4 &&
+          ( i < 2 ? edges[i].transition != LIBSPECTRUM_TAPE_TRANSITION_TOGGLE :
+                    edges[i].transition == LIBSPECTRUM_TAPE_TRANSITION_NONE ) ) {
+        fprintf( stderr, "%s: final sample tape %lu: %u tstates, transition %d\n",
+                 progname, (unsigned long)i, edges[i].tstates,
+                 edges[i].transition );
+        goto done;
+      }
+    }
+    duration += edges[0].tstates;
+  }
+  if( count == 4 && duration == 3972142 ) result = TEST_PASS;
+  else fprintf( stderr, "%s: synthetic total %llu tstates in %lu samples\n",
+                progname, (unsigned long long)duration, (unsigned long)count );
+done:
+  if( result == TEST_FAIL )
+    fprintf( stderr, "%s: bug #528 CSW waveform differs at sample %lu\n",
+             progname, (unsigned long)count );
+  libspectrum_free( output );
+  for( i = 0; i < 4; i++ ) libspectrum_tape_free( tapes[i] );
+  return result;
 }
 
 /* Standalone CSW's exact rate and initial polarity survive TZX export. */
