@@ -381,6 +381,7 @@ test_return_t pzx_write_recordings( void );
 test_return_t pzx_write_recordings_invalid( void );
 test_return_t pzx_write_raw_recordings( void );
 test_return_t pzx_write_raw_invalid( void );
+test_return_t tzx_message_duration( void );
 test_return_t pzx_write_waveforms( void );
 test_return_t pzx_write_legacy_pulses( void );
 test_return_t pzx_write_legacy_pulses_invalid( void );

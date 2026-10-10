@@ -190,6 +190,8 @@ internal_tzx_write( libspectrum_buffer* buffer, libspectrum_tape *tape )
       break;
 
     case LIBSPECTRUM_TAPE_BLOCK_MESSAGE:
+      if( libspectrum_tape_block_pause( block ) / 1000 > 255 )
+        return LIBSPECTRUM_ERROR_INVALID;
       tzx_write_message( block, buffer );
       break;
 
@@ -606,7 +608,8 @@ static void
 tzx_write_message( libspectrum_tape_block *block, libspectrum_buffer *buffer )
 {
   libspectrum_buffer_write_byte( buffer, LIBSPECTRUM_TAPE_BLOCK_MESSAGE );
-  libspectrum_buffer_write_byte( buffer, libspectrum_tape_block_pause( block ) );
+  libspectrum_buffer_write_byte( buffer,
+                                libspectrum_tape_block_pause( block ) / 1000 );
   tzx_write_string( buffer, libspectrum_tape_block_text( block ) );
 }
 

@@ -690,6 +690,42 @@ done:
 }
 
 test_return_t
+tzx_message_duration( void )
+{
+  static const libspectrum_dword durations[] = { 0, 3000, 255000 };
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape *dest = libspectrum_tape_alloc();
+  libspectrum_tape_block *block = libspectrum_tape_block_alloc(
+    LIBSPECTRUM_TAPE_BLOCK_MESSAGE );
+  libspectrum_byte *out = NULL;
+  char *text = libspectrum_new( char, 5 );
+  size_t length = 0, i;
+  test_return_t result = TEST_FAIL;
+  strcpy( text, "Test" );
+  libspectrum_tape_block_set_text( block, text );
+  libspectrum_tape_append_block( tape, block );
+  for( i = 0; i < sizeof( durations ) / sizeof( durations[0] ); i++ ) {
+    libspectrum_set_pause_ms( block, durations[i] );
+    libspectrum_tape_clear( dest );
+    if( libspectrum_tape_write( &out, &length, tape, LIBSPECTRUM_ID_TAPE_TZX ) ||
+        length != 17 || out[10] != 0x31 || out[11] != durations[i] / 1000 ||
+        libspectrum_tape_block_pause( block ) != durations[i] ||
+        libspectrum_tape_read( dest, out, length, LIBSPECTRUM_ID_TAPE_TZX, NULL ) ||
+        libspectrum_tape_block_pause( libspectrum_tape_current_block( dest ) ) != durations[i] )
+      goto done;
+    libspectrum_free( out ); out = NULL; length = 0;
+  }
+  libspectrum_set_pause_ms( block, 256000 );
+  if( libspectrum_tape_write( &out, &length, tape, LIBSPECTRUM_ID_TAPE_TZX ) !=
+      LIBSPECTRUM_ERROR_INVALID || out || length ) goto done;
+  result = TEST_PASS;
+done:
+  libspectrum_free( out );
+  libspectrum_tape_free( tape ); libspectrum_tape_free( dest );
+  return result;
+}
+
+test_return_t
 pzx_write_rejects_unsupported( void )
 {
   libspectrum_tape *tape = libspectrum_tape_alloc();

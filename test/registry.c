@@ -325,6 +325,7 @@ test_description tests[] = {
   TEST_ENTRY( pzx_write_raw_invalid, "PZX invalid direct recordings preserve output and playback" ),
   TEST_ENTRY( pzx_write_legacy_pulses_invalid, "PZX invalid legacy pulses preserve output and playback" ),
   TEST_ENTRY( pzx_write_legacy_pulses, "PZX pure tones and pulse lists preserve signal levels" ),
+  TEST_ENTRY( tzx_message_duration, "TZX message durations use seconds without wrapping" ),
   TEST_ENTRY( pzx_write_waveforms, "PZX writer preserves native and legacy waveforms" ),
   TEST_ENTRY( pzx_archive_mapping, "Shared PZX archive mapping matches all standard names and IDs" ),
   TEST_ENTRY( pzx_write_empty_zero_and_buffers, "PZX empty tapes, all-zero pulses and output buffer reuse" ),
