@@ -321,6 +321,8 @@ test_description tests[] = {
   TEST_ENTRY( tape_text_malformed_and_substitution, "Tape text substitutes malformed UTF-8 and unsupported characters" ),
   TEST_ENTRY( tape_text_metadata_and_binary_roundtrips, "Tape metadata roundtrips without modifying custom binary data" ),
   TEST_ENTRY( tape_text_encodings, "Tape text uses UTF-8 across lossy and repeated format conversions" ),
+  TEST_ENTRY( pzx_write_groups, "PZX groups become browse points without changing waveform polarity" ),
+  TEST_ENTRY( pzx_write_groups_invalid, "PZX malformed groups preserve output and playback" ),
   TEST_ENTRY( pzx_generalised_symbol_semantics, "Generalised symbols obey terminators and explicit boundary polarity" ),
   TEST_ENTRY( pzx_terminal_cancelled_edge, "PZX timed terminal events preserve cancelled transitions and rewind" ),
   TEST_ENTRY( pzx_write_generalised, "PZX generalised data preserves timed waveform runs" ),

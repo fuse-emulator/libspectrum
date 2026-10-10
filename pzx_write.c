@@ -25,7 +25,7 @@
 typedef struct pzx_writer {
   libspectrum_buffer *out, *body;
   libspectrum_tape_block_state state;
-  int need_playback, level, first, last;
+  int need_playback, level, first, last, in_group;
 } pzx_writer;
 
 typedef struct legacy_data {
@@ -421,6 +421,14 @@ validate_block( pzx_writer *writer, libspectrum_tape_block *block )
   case LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK: return validate_native_data( block );
   case LIBSPECTRUM_TAPE_BLOCK_PAUSE: return validate_pause( writer, block );
   case LIBSPECTRUM_TAPE_BLOCK_ARCHIVE_INFO: return validate_archive( block );
+  case LIBSPECTRUM_TAPE_BLOCK_GROUP_START:
+    if( writer->in_group ) return LIBSPECTRUM_ERROR_INVALID;
+    writer->in_group = 1;
+    return LIBSPECTRUM_ERROR_NONE;
+  case LIBSPECTRUM_TAPE_BLOCK_GROUP_END:
+    if( !writer->in_group ) return LIBSPECTRUM_ERROR_INVALID;
+    writer->in_group = 0;
+    return LIBSPECTRUM_ERROR_NONE;
   case LIBSPECTRUM_TAPE_BLOCK_STOP48:
   case LIBSPECTRUM_TAPE_BLOCK_COMMENT:
   case LIBSPECTRUM_TAPE_BLOCK_CONCAT: return LIBSPECTRUM_ERROR_NONE;
@@ -625,6 +633,8 @@ write_block( pzx_writer *writer, libspectrum_tape_block *block )
     if( !pause ) return write_stop( writer, PZX_STOP_ALWAYS );
     return write_pause( writer, pause, writer->first );
   case LIBSPECTRUM_TAPE_BLOCK_STOP48: return write_stop( writer, PZX_STOP_48K );
+  case LIBSPECTRUM_TAPE_BLOCK_GROUP_END: return LIBSPECTRUM_ERROR_NONE;
+  case LIBSPECTRUM_TAPE_BLOCK_GROUP_START:
   case LIBSPECTRUM_TAPE_BLOCK_COMMENT:
     {
       char *utf8;
@@ -658,6 +668,10 @@ internal_pzx_write( libspectrum_buffer *out, libspectrum_tape *tape )
        block = libspectrum_tape_iterator_next( &it ) ) {
     error = validate_block( &writer, block );
     if( error ) goto done;
+  }
+  if( writer.in_group ) {
+    error = LIBSPECTRUM_ERROR_INVALID;
+    goto done;
   }
   error = prepare_playback( &writer, tape );
   if( error ) goto done;

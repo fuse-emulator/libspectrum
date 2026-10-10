@@ -379,6 +379,8 @@ test_return_t tape_text_encodings( void );
 test_return_t tape_text_cp1252_mappings( void );
 test_return_t tape_text_malformed_and_substitution( void );
 test_return_t tape_text_metadata_and_binary_roundtrips( void );
+test_return_t pzx_write_groups( void );
+test_return_t pzx_write_groups_invalid( void );
 test_return_t pzx_generalised_symbol_semantics( void );
 test_return_t pzx_terminal_cancelled_edge( void );
 test_return_t pzx_write_generalised( void );

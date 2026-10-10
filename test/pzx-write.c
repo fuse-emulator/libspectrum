@@ -85,6 +85,79 @@ generalised_block( size_t alphabet, int pilot, int pause )
   return b;
 }
 
+static libspectrum_tape_block *
+group_block( const char *name )
+{
+  libspectrum_tape_block *b = libspectrum_tape_block_alloc(
+    LIBSPECTRUM_TAPE_BLOCK_GROUP_START );
+  if( name ) {
+    char *text = libspectrum_new( char, strlen( name ) + 1 );
+    strcpy( text, name );
+    libspectrum_tape_block_set_text( b, text );
+  }
+  return b;
+}
+
+test_return_t
+pzx_write_groups( void )
+{
+  const char *name = "Level 1 \xc3\xa9 \xe2\x82\xac \xe2\x80\x9c";
+  const char *expected_name = name;
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape *dest = libspectrum_tape_alloc();
+  libspectrum_tape_block *b;
+  libspectrum_tape_iterator it;
+  libspectrum_byte *out = NULL;
+  libspectrum_dword expected[64], actual[64];
+  int expected_levels[64], actual_levels[64];
+  size_t length = 0, a, e, browses = 0;
+  test_return_t result = TEST_FAIL;
+  b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL );
+  libspectrum_tape_block_set_level( b, 1 );
+  libspectrum_tape_append_block( tape, b );
+  libspectrum_tape_append_block( tape, group_block( NULL ) );
+  libspectrum_tape_append_block( tape,
+    libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_GROUP_END ) );
+  libspectrum_tape_append_block( tape, group_block( name ) );
+  b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PURE_TONE );
+  libspectrum_tape_block_set_count( b, 3 );
+  libspectrum_tape_block_set_pulse_length( b, 100 );
+  libspectrum_tape_append_block( tape, b );
+  libspectrum_tape_append_block( tape,
+    libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_GROUP_END ) );
+  b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PURE_TONE );
+  libspectrum_tape_block_set_count( b, 2 );
+  libspectrum_tape_block_set_pulse_length( b, 300 );
+  libspectrum_tape_append_block( tape, b );
+  if( libspectrum_tape_nth_block( tape, 0 ) ||
+      libspectrum_tape_write( &out, &length, tape, LIBSPECTRUM_ID_TAPE_PZX ) ||
+      libspectrum_tape_read( dest, out, length, LIBSPECTRUM_ID_TAPE_PZX, NULL ) )
+    goto done;
+  for( b = libspectrum_tape_iterator_init( &it, dest ); b;
+       b = libspectrum_tape_iterator_next( &it ) ) {
+    if( libspectrum_tape_block_type( b ) == LIBSPECTRUM_TAPE_BLOCK_COMMENT ) {
+      const char *text = libspectrum_tape_block_text( b );
+      if( browses >= 2 || !text || strcmp( text, browses ? expected_name : "" ) )
+        goto done;
+      browses++;
+    } else if( libspectrum_tape_block_type( b ) != LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE ) {
+      goto done;
+    }
+  }
+  if( browses != 2 || !collect_runs( tape, expected, expected_levels, &e ) ||
+      !collect_runs( dest, actual, actual_levels, &a ) || a != e || a != 5 ||
+      memcmp( expected, actual, e * sizeof( expected[0] ) ) ||
+      memcmp( expected_levels, actual_levels, e * sizeof( expected_levels[0] ) ) ||
+      actual[0] != 100 || actual[3] != 300 ||
+      actual_levels[0] != LIBSPECTRUM_TAPE_SIGNAL_LOW ||
+      actual_levels[3] != LIBSPECTRUM_TAPE_SIGNAL_HIGH ) goto done;
+  result = TEST_PASS;
+done:
+  libspectrum_free( out );
+  libspectrum_tape_free( tape ); libspectrum_tape_free( dest );
+  return result;
+}
+
 test_return_t
 pzx_generalised_symbol_semantics( void )
 {
@@ -580,6 +653,28 @@ tape_text_encodings( void )
 done:
   libspectrum_free( converted ); libspectrum_free( out );
   libspectrum_tape_free( tape ); libspectrum_tape_free( dest );
+  return result;
+}
+
+test_return_t
+pzx_write_groups_invalid( void )
+{
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  size_t i;
+  test_return_t result = TEST_FAIL;
+  for( i = 0; i < 4; i++ ) {
+    libspectrum_tape_clear( tape );
+    if( i != 0 ) libspectrum_tape_append_block( tape, group_block( "Group" ) );
+    if( i == 2 ) libspectrum_tape_append_block( tape, group_block( "Nested" ) );
+    if( i != 1 ) libspectrum_tape_append_block( tape,
+      libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_GROUP_END ) );
+    if( i == 3 ) libspectrum_tape_append_block( tape,
+      libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_GROUP_END ) );
+    if( !rejected( tape, LIBSPECTRUM_ERROR_INVALID ) ) goto done;
+  }
+  result = TEST_PASS;
+done:
+  libspectrum_tape_free( tape );
   return result;
 }
 
