@@ -42,6 +42,9 @@ libspectrum_la_SOURCES = bzip2.c \
 			 pzx.c \
 			 pzx_read.c \
 			 pzx_write.c \
+			 pzx_write_plan.c \
+			 pzx_write_playback.c \
+			 pzx_write_validate.c \
 			 rzx.c \
 			 sna.c \
 			 snp.c \
@@ -106,6 +109,7 @@ BUILT_SOURCES = libspectrum.h snap_accessors.c tape_accessors.c tape_set.c
 nodist_include_HEADERS = libspectrum.h
 noinst_HEADERS = internals.h \
 			 pzx_internals.h \
+			 pzx_write_internal.h \
 			 wav_internals.h \
 			 zip.h
 
