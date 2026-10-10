@@ -141,7 +141,8 @@ inspect_block( pzx_writer *writer, libspectrum_tape *tape )
     writer->state.current_block );
   libspectrum_tape_type type = libspectrum_tape_block_type( block );
   int recording = type == LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE ||
-                  type == LIBSPECTRUM_TAPE_BLOCK_TZX_CSW;
+                  type == LIBSPECTRUM_TAPE_BLOCK_TZX_CSW ||
+                  type == LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA;
   int flags, initial = 1, next_level = 0;
   if( type == LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE &&
       !libspectrum_tape_block_data_length( block ) ) {
@@ -149,8 +150,11 @@ inspect_block( pzx_writer *writer, libspectrum_tape *tape )
     return libspectrum_tape_block_init( block, &writer->state );
   }
   do {
-    int pause = type == LIBSPECTRUM_TAPE_BLOCK_TZX_CSW &&
-                writer->state.block_state.rle_pulse.csw_pause_pending;
+    int pause = ( type == LIBSPECTRUM_TAPE_BLOCK_TZX_CSW &&
+                  writer->state.block_state.rle_pulse.csw_pause_pending ) ||
+                ( type == LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA &&
+                  writer->state.block_state.generalised_data.state ==
+                  LIBSPECTRUM_TAPE_STATE_PAUSE );
     error = libspectrum_tape_get_next_edge_internal( &duration, &flags, tape,
                                                     &writer->state );
     if( error ) return error;
@@ -271,6 +275,57 @@ validate_archive( libspectrum_tape_block *block )
 }
 
 static libspectrum_error
+validate_generalised_table( libspectrum_tape_generalised_data_symbol_table *table )
+{
+  size_t i;
+  if( !table->symbols_in_block ) return LIBSPECTRUM_ERROR_NONE;
+  if( !table->max_pulses || !table->symbols_in_table ||
+      table->symbols_in_table > 256 || !table->symbols )
+    return LIBSPECTRUM_ERROR_INVALID;
+  for( i = 0; i < table->symbols_in_table; i++ ) {
+    libspectrum_tape_generalised_data_symbol *symbol = &table->symbols[i];
+    if( !symbol->lengths ||
+        symbol->edge_type < LIBSPECTRUM_TAPE_GENERALISED_DATA_SYMBOL_EDGE ||
+        symbol->edge_type > LIBSPECTRUM_TAPE_GENERALISED_DATA_SYMBOL_HIGH )
+      return LIBSPECTRUM_ERROR_INVALID;
+  }
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
+static libspectrum_error
+validate_generalised( libspectrum_tape_block *block )
+{
+  libspectrum_tape_generalised_data_block *data = &block->types.generalised_data;
+  libspectrum_error error;
+  size_t i, bits = 0, offset = 0;
+  error = validate_generalised_table( &data->pilot_table );
+  if( error ) return error;
+  error = validate_generalised_table( &data->data_table );
+  if( error ) return error;
+  if( data->pause_tstates > PZX_VALUE_MASK ) return LIBSPECTRUM_ERROR_INVALID;
+  if( data->pilot_table.symbols_in_block &&
+      ( !data->pilot_symbols || !data->pilot_repeats ) )
+    return LIBSPECTRUM_ERROR_INVALID;
+  for( i = 0; i < data->pilot_table.symbols_in_block; i++ )
+    if( data->pilot_symbols[i] >= data->pilot_table.symbols_in_table ||
+        !data->pilot_repeats[i] ) return LIBSPECTRUM_ERROR_INVALID;
+  if( !data->data_table.symbols_in_block ) return LIBSPECTRUM_ERROR_NONE;
+  while( ( (size_t)1 << bits ) < data->data_table.symbols_in_table ) bits++;
+  if( data->bits_per_data_symbol != bits || !data->data ||
+      ( bits && data->data_table.symbols_in_block > ( SIZE_MAX - 7 ) / bits ) )
+    return LIBSPECTRUM_ERROR_INVALID;
+  for( i = 0; i < data->data_table.symbols_in_block; i++ ) {
+    size_t j, symbol = 0;
+    for( j = 0; j < bits; j++, offset++ )
+      symbol = ( symbol << 1 ) |
+               ( ( data->data[offset / 8] >> ( 7 - offset % 8 ) ) & 1 );
+    if( symbol >= data->data_table.symbols_in_table )
+      return LIBSPECTRUM_ERROR_INVALID;
+  }
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
+static libspectrum_error
 validate_recording( libspectrum_tape_block *block )
 {
   size_t i = 0, pulses = 0;
@@ -315,6 +370,9 @@ validate_block( pzx_writer *writer, libspectrum_tape_block *block )
   legacy_data data;
   size_t i;
   switch( libspectrum_tape_block_type( block ) ) {
+  case LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA:
+    writer->need_playback = 1;
+    return validate_generalised( block );
   case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
   case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
     writer->need_playback = 1;
@@ -545,15 +603,18 @@ write_block( pzx_writer *writer, libspectrum_tape_block *block )
   case LIBSPECTRUM_TAPE_BLOCK_RAW_DATA: return write_raw_data( writer, block );
   case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
   case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
+  case LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA:
     {
       libspectrum_error error;
       if( libspectrum_buffer_get_data_size( writer->body ) ) {
         error = write_chunk( writer, PZX_PULSE );
         if( error ) return error;
       }
-      if( libspectrum_tape_block_type( block ) == LIBSPECTRUM_TAPE_BLOCK_TZX_CSW &&
+      if( libspectrum_tape_block_type( block ) != LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE &&
           libspectrum_tape_block_pause_tstates( block ) )
-        return write_pause( writer, libspectrum_tape_block_pause_tstates( block ), 0 );
+        return write_pause( writer, libspectrum_tape_block_pause_tstates( block ),
+          libspectrum_tape_block_type( block ) == LIBSPECTRUM_TAPE_BLOCK_TZX_CSW ?
+          0 : writer->last );
       return LIBSPECTRUM_ERROR_NONE;
     }
   case LIBSPECTRUM_TAPE_BLOCK_PAUSE:

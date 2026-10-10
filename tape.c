@@ -1478,9 +1478,8 @@ pulse_sequence_edge( libspectrum_tape_pulse_sequence_block *block,
     *flags |= new_level ? LIBSPECTRUM_TAPE_FLAGS_LEVEL_HIGH :
                           LIBSPECTRUM_TAPE_FLAGS_LEVEL_LOW;
     state->level = new_level;
-  } else if( !(*tstates) ) {
-    /* If the net effect of this edge was 0 tstates and no level change, it was
-       much ado about nothing */
+  } else {
+    /* Zero pulses can cancel the transition before a timed pulse too. */
     *flags |= LIBSPECTRUM_TAPE_FLAGS_NO_EDGE;
   }
 
