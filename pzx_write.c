@@ -90,6 +90,31 @@ write_sequence( pzx_writer *writer, libspectrum_tape_block *block )
   return write_chunk( writer, PZX_PULSE );
 }
 
+/* PULS starts low. A zero pulse selects high before the first timed pulse. */
+static libspectrum_error
+write_legacy_pulses( pzx_writer *writer, libspectrum_tape_block *block )
+{
+  size_t i;
+  libspectrum_error error;
+  if( writer->first ) {
+    error = write_pulse( writer->body, 0, 1 );
+    if( error ) return error;
+  }
+  if( libspectrum_tape_block_type( block ) == LIBSPECTRUM_TAPE_BLOCK_PURE_TONE ) {
+    error = write_pulse( writer->body,
+      libspectrum_tape_block_pulse_length( block ),
+      libspectrum_tape_block_count( block ) );
+    if( error ) return error;
+  } else {
+    for( i = 0; i < libspectrum_tape_block_count( block ); i++ ) {
+      error = write_pulse( writer->body,
+        libspectrum_tape_block_pulse_lengths( block, i ), 1 );
+      if( error ) return error;
+    }
+  }
+  return write_chunk( writer, PZX_PULSE );
+}
+
 static void
 write_string( libspectrum_buffer *body, const char *s )
 {
@@ -217,7 +242,27 @@ static libspectrum_error
 validate_block( pzx_writer *writer, libspectrum_tape_block *block )
 {
   legacy_data data;
+  size_t i;
   switch( libspectrum_tape_block_type( block ) ) {
+  case LIBSPECTRUM_TAPE_BLOCK_PURE_TONE:
+    writer->need_playback = 1;
+    if( !libspectrum_tape_block_count( block ) ||
+        libspectrum_tape_block_pulse_length( block ) > PZX_VALUE_MASK )
+      return LIBSPECTRUM_ERROR_INVALID;
+    return LIBSPECTRUM_ERROR_NONE;
+  case LIBSPECTRUM_TAPE_BLOCK_PULSES:
+    writer->need_playback = 1;
+    if( !libspectrum_tape_block_count( block ) )
+      return LIBSPECTRUM_ERROR_INVALID;
+    for( i = 0; i < libspectrum_tape_block_count( block ); i++ )
+      if( libspectrum_tape_block_pulse_lengths( block, i ) > PZX_VALUE_MASK )
+        return LIBSPECTRUM_ERROR_INVALID;
+    return LIBSPECTRUM_ERROR_NONE;
+  case LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL:
+    writer->need_playback = 1;
+    return libspectrum_tape_block_level( block ) < 0 ||
+           libspectrum_tape_block_level( block ) > 1 ?
+           LIBSPECTRUM_ERROR_INVALID : LIBSPECTRUM_ERROR_NONE;
   case LIBSPECTRUM_TAPE_BLOCK_ROM:
   case LIBSPECTRUM_TAPE_BLOCK_TURBO:
   case LIBSPECTRUM_TAPE_BLOCK_PURE_DATA:
@@ -370,6 +415,13 @@ write_block( pzx_writer *writer, libspectrum_tape_block *block )
   libspectrum_dword pause;
   const char *text;
   switch( libspectrum_tape_block_type( block ) ) {
+  case LIBSPECTRUM_TAPE_BLOCK_PURE_TONE:
+  case LIBSPECTRUM_TAPE_BLOCK_PULSES:
+    return write_legacy_pulses( writer, block );
+  case LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL:
+    /* Playback inspection carries this level into subsequent legacy blocks.
+       PZX blocks specify their own initial levels, so no output is needed. */
+    return LIBSPECTRUM_ERROR_NONE;
   case LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE: return write_sequence( writer, block );
   case LIBSPECTRUM_TAPE_BLOCK_ROM:
   case LIBSPECTRUM_TAPE_BLOCK_TURBO:
