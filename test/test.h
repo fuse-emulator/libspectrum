@@ -373,6 +373,8 @@ test_return_t snap_zxcf_ram_page_pointer_array_getter_setter( void );
 test_return_t utilities_dword_decoders( void );
 test_return_t tape_dword_high_bit_callers( void );
 test_return_t pzx_large_payload_bounds( void );
+test_return_t pzx_write_recordings( void );
+test_return_t pzx_write_recordings_invalid( void );
 test_return_t pzx_write_raw_recordings( void );
 test_return_t pzx_write_raw_invalid( void );
 test_return_t pzx_write_waveforms( void );

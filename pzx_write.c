@@ -137,8 +137,20 @@ inspect_block( pzx_writer *writer, libspectrum_tape *tape )
 {
   libspectrum_error error;
   libspectrum_dword duration;
-  int flags, initial = 1;
+  libspectrum_tape_block *block = libspectrum_tape_iterator_current(
+    writer->state.current_block );
+  libspectrum_tape_type type = libspectrum_tape_block_type( block );
+  int recording = type == LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE ||
+                  type == LIBSPECTRUM_TAPE_BLOCK_TZX_CSW;
+  int flags, initial = 1, next_level = 0;
+  if( type == LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE &&
+      !libspectrum_tape_block_data_length( block ) ) {
+    block = libspectrum_tape_iterator_next( &writer->state.current_block );
+    return libspectrum_tape_block_init( block, &writer->state );
+  }
   do {
+    int pause = type == LIBSPECTRUM_TAPE_BLOCK_TZX_CSW &&
+                writer->state.block_state.rle_pulse.csw_pause_pending;
     error = libspectrum_tape_get_next_edge_internal( &duration, &flags, tape,
                                                     &writer->state );
     if( error ) return error;
@@ -148,6 +160,26 @@ inspect_block( pzx_writer *writer, libspectrum_tape *tape )
       writer->level = !writer->level;
     if( initial ) { writer->first = writer->level; initial = 0; }
     writer->last = writer->level;
+    writer->state.signal_level = writer->level;
+    if( recording && !pause &&
+        ( duration || !( flags & LIBSPECTRUM_TAPE_FLAGS_NO_EDGE ) ) ) {
+      if( writer->level != next_level ) {
+        error = write_pulse( writer->body, 0, 1 );
+        if( error ) return error;
+        next_level = !next_level;
+      }
+      /* A zero pulse between pieces preserves the level of long runs. */
+      while( duration > PZX_VALUE_MASK ) {
+        error = write_pulse( writer->body, PZX_VALUE_MASK, 1 );
+        if( error ) return error;
+        error = write_pulse( writer->body, 0, 1 );
+        if( error ) return error;
+        duration -= PZX_VALUE_MASK;
+      }
+      error = write_pulse( writer->body, duration, 1 );
+      if( error ) return error;
+      next_level = !next_level;
+    }
   } while( !( flags & LIBSPECTRUM_TAPE_FLAGS_BLOCK ) );
   return LIBSPECTRUM_ERROR_NONE;
 }
@@ -239,11 +271,54 @@ validate_archive( libspectrum_tape_block *block )
 }
 
 static libspectrum_error
+validate_recording( libspectrum_tape_block *block )
+{
+  size_t i = 0, pulses = 0;
+  size_t length = libspectrum_tape_block_data_length( block );
+  const libspectrum_byte *data = libspectrum_tape_block_data( block );
+  libspectrum_dword rate = libspectrum_tape_block_sample_rate( block );
+  libspectrum_dword scale = libspectrum_tape_block_scale( block );
+  libspectrum_qword remainder = 0;
+  if( length && !data ) return LIBSPECTRUM_ERROR_CORRUPT;
+  if( length && !rate && !scale ) return LIBSPECTRUM_ERROR_INVALID;
+  while( i < length ) {
+    libspectrum_dword samples = data[i++];
+    libspectrum_qword duration;
+    if( !samples ) {
+      if( length - i < 4 ) return LIBSPECTRUM_ERROR_CORRUPT;
+      samples = libspectrum_read_dword_le( data + i );
+      i += 4;
+      if( !samples ) return LIBSPECTRUM_ERROR_CORRUPT;
+    }
+    if( rate ) {
+      duration = (libspectrum_qword)samples * 3500000 + remainder;
+      remainder = duration % rate;
+      duration /= rate;
+    } else {
+      duration = (libspectrum_qword)samples * scale;
+    }
+    if( duration > UINT32_MAX ) return LIBSPECTRUM_ERROR_INVALID;
+    pulses++;
+  }
+  if( libspectrum_tape_block_type( block ) == LIBSPECTRUM_TAPE_BLOCK_TZX_CSW ) {
+    if( pulses != libspectrum_tape_block_csw_pulses( block ) )
+      return LIBSPECTRUM_ERROR_CORRUPT;
+    if( libspectrum_tape_block_pause_tstates( block ) > PZX_VALUE_MASK )
+      return LIBSPECTRUM_ERROR_INVALID;
+  }
+  return LIBSPECTRUM_ERROR_NONE;
+}
+
+static libspectrum_error
 validate_block( pzx_writer *writer, libspectrum_tape_block *block )
 {
   legacy_data data;
   size_t i;
   switch( libspectrum_tape_block_type( block ) ) {
+  case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
+  case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
+    writer->need_playback = 1;
+    return validate_recording( block );
   case LIBSPECTRUM_TAPE_BLOCK_RAW_DATA:
     {
       size_t length = libspectrum_tape_block_data_length( block );
@@ -468,6 +543,19 @@ write_block( pzx_writer *writer, libspectrum_tape_block *block )
   case LIBSPECTRUM_TAPE_BLOCK_PURE_DATA: return write_legacy_data( writer, block );
   case LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK: return write_native_data( writer, block );
   case LIBSPECTRUM_TAPE_BLOCK_RAW_DATA: return write_raw_data( writer, block );
+  case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
+  case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
+    {
+      libspectrum_error error;
+      if( libspectrum_buffer_get_data_size( writer->body ) ) {
+        error = write_chunk( writer, PZX_PULSE );
+        if( error ) return error;
+      }
+      if( libspectrum_tape_block_type( block ) == LIBSPECTRUM_TAPE_BLOCK_TZX_CSW &&
+          libspectrum_tape_block_pause_tstates( block ) )
+        return write_pause( writer, libspectrum_tape_block_pause_tstates( block ), 0 );
+      return LIBSPECTRUM_ERROR_NONE;
+    }
   case LIBSPECTRUM_TAPE_BLOCK_PAUSE:
     pause = libspectrum_tape_block_pause_tstates( block );
     if( !pause ) return write_stop( writer, PZX_STOP_ALWAYS );

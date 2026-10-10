@@ -48,6 +48,64 @@ collect_runs( libspectrum_tape *tape, libspectrum_dword *durations,
 }
 
 test_return_t
+pzx_write_recordings( void )
+{
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape *dest = libspectrum_tape_alloc();
+  libspectrum_byte *out = NULL;
+  libspectrum_dword expected[64], actual[64];
+  int expected_levels[64], actual_levels[64];
+  size_t length = 0, n, a, e;
+  test_return_t result = TEST_FAIL;
+  for( n = 0; n < 32; n++ ) {
+    libspectrum_tape_block *b;
+    libspectrum_byte *data = libspectrum_new( libspectrum_byte, 7 );
+    size_t size = n & 8 ? 7 : n & 16 ? 0 : 1;
+    libspectrum_tape_clear( tape ); libspectrum_tape_clear( dest );
+    b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL );
+    libspectrum_tape_block_set_level( b, n & 1 );
+    libspectrum_tape_append_block( tape, b );
+    b = libspectrum_tape_block_alloc( n & 2 ?
+      LIBSPECTRUM_TAPE_BLOCK_TZX_CSW : LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE );
+    data[0] = 13; data[1] = 0; data[2] = 0x34; data[3] = 0x12;
+    data[4] = 0; data[5] = 0; data[6] = 19;
+    libspectrum_tape_block_set_data( b, data );
+    libspectrum_tape_block_set_data_length( b, size );
+    libspectrum_tape_block_set_sample_rate( b, n & 4 ? 44100 : 0 );
+    libspectrum_tape_block_set_scale( b, 79 );
+    if( n & 2 ) {
+      libspectrum_tape_block_set_csw_pulses( b, size == 7 ? 3 : size );
+      libspectrum_set_pause_tstates( b, n & 1 ? 70000 : 0 );
+    }
+    libspectrum_tape_append_block( tape, b );
+    b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PURE_TONE );
+    libspectrum_tape_block_set_count( b, 2 );
+    libspectrum_tape_block_set_pulse_length( b, 100 );
+    libspectrum_tape_append_block( tape, b );
+    if( libspectrum_tape_nth_block( tape, 0 ) ||
+        libspectrum_tape_write( &out, &length, tape, LIBSPECTRUM_ID_TAPE_PZX ) ||
+        libspectrum_tape_read( dest, out, length, LIBSPECTRUM_ID_TAPE_PZX, NULL ) )
+      goto done;
+    /* Empty standalone RLE cannot be played by the source edge API. */
+    if( !size && !( n & 2 ) ) {
+      libspectrum_free( out ); out = NULL; length = 0;
+      continue;
+    }
+    if( !collect_runs( tape, expected, expected_levels, &e ) ||
+        !collect_runs( dest, actual, actual_levels, &a ) || a != e ||
+        memcmp( expected, actual, e * sizeof( expected[0] ) ) ||
+        memcmp( expected_levels, actual_levels, e * sizeof( expected_levels[0] ) ) )
+      goto done;
+    libspectrum_free( out ); out = NULL; length = 0;
+  }
+  result = TEST_PASS;
+done:
+  libspectrum_free( out );
+  libspectrum_tape_free( tape ); libspectrum_tape_free( dest );
+  return result;
+}
+
+test_return_t
 pzx_write_raw_recordings( void )
 {
   libspectrum_tape *tape = libspectrum_tape_alloc();
@@ -247,6 +305,36 @@ static int
 rejected( libspectrum_tape *tape, libspectrum_error expected )
 {
   return rejected_format( tape, expected, LIBSPECTRUM_ID_TAPE_PZX );
+}
+
+test_return_t
+pzx_write_recordings_invalid( void )
+{
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  size_t i;
+  test_return_t result = TEST_FAIL;
+  for( i = 0; i < 6; i++ ) {
+    libspectrum_tape_block *b = libspectrum_tape_block_alloc( i >= 4 ?
+      LIBSPECTRUM_TAPE_BLOCK_TZX_CSW : LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE );
+    libspectrum_byte *data = libspectrum_new( libspectrum_byte, 5 );
+    memset( data, 0, 5 );
+    if( i >= 2 ) data[0] = 2;
+    libspectrum_tape_clear( tape );
+    libspectrum_tape_block_set_data( b, data );
+    libspectrum_tape_block_set_data_length( b, i == 0 ? 4 : i == 1 ? 5 : 1 );
+    libspectrum_tape_block_set_scale( b, i == 2 ? 0 : i == 3 ? UINT32_MAX : 79 );
+    if( i >= 4 ) {
+      libspectrum_tape_block_set_csw_pulses( b, i == 4 ? 2 : 1 );
+      libspectrum_set_pause_tstates( b, i == 5 ? 0x80000000U : 0 );
+    }
+    libspectrum_tape_append_block( tape, b );
+    if( !rejected( tape, i < 2 || i == 4 ? LIBSPECTRUM_ERROR_CORRUPT :
+                   LIBSPECTRUM_ERROR_INVALID ) ) goto done;
+  }
+  result = TEST_PASS;
+done:
+  libspectrum_tape_free( tape );
+  return result;
 }
 
 test_return_t
