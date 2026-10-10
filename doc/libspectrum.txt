@@ -678,10 +678,21 @@ Free the memory used by a `libspectrum_creator' structure.
 libspectrum_error
 libspectrum_creator_set_program( libspectrum_creator *creator,
 				 const char *program )
-const libspectrum_byte*
-libspectrum_creator_program( libspectrum_creator *creator )
+const char*
+libspectrum_creator_program( const libspectrum_creator *creator )
 
-Set and retrieve the name of the program which created this file.
+Set and retrieve the creator's program name as NUL-terminated UTF-8.
+The setter replaces malformed sequences with `?' and retains at most
+31 bytes without splitting a UTF-8 character.
+
+SZX creator names are written as UTF-8 in their zero-padded 32-byte field.
+This is libspectrum's convention; the SZX specification does not define a
+character set. The snapshot reader does not expose SZX creator metadata.
+RZX specifies ASCII: output names are transliterated where iconv supports
+it, otherwise substituted with `?', then limited to the 20-byte field and
+zero-padded. RZX input names retain ASCII, replacing non-ASCII bytes with
+`?'. These conversions do not change the caller's creator object. Creator
+custom data remains binary and is not converted.
 
 libspectrum_error libspectrum_creator_set_major( libspectrum_creator *creator,
 						 libspectrum_word major )
@@ -1604,6 +1615,34 @@ or
 libspectrum_error
 libspectrum_tape_block_set_<name>( libspectrum_tape_block *block,
 				   size_t index, <type> new_value )
+
+Tape text encodings
+
+libspectrum uses NUL-terminated UTF-8 for tape metadata: GROUP_START,
+COMMENT, MESSAGE, ARCHIVE_INFO and SELECT `text'/`texts' fields. Callers
+must supply UTF-8 to their setters.
+
+Readers and writers convert between UTF-8 and the format's character set:
+
+  TZX: Windows-1252 (CP1252), following real-world usage. The specification
+       names ISO-8859-1 (Latin-1).
+  PZX: UTF-8.
+
+On export, unsupported characters are transliterated where iconv supports
+it, otherwise replaced with `?'. Invalid character sequences are also
+replaced with `?'. Transliteration may vary by platform. Metadata line
+endings are LF in the API and CR in TZX files. Writing leaves caller text
+unchanged; format length limits apply to the converted bytes.
+
+ZX Spectrum strings are a separate encoding, present in tape data such as
+ROM header filenames and BASIC programs, in Microdrive cartridge/file
+names, and in snapshot memory. These
+remain raw bytes, not UTF-8 metadata. Use libspectrum_zx_string_to_utf8()
+to render Spectrum strings, including graphics characters and BASIC tokens.
+
+CUSTOM identifiers, custom payloads and other binary data are not converted.
+CSW's encoding-application description is ASCII; it is not exposed as tape
+metadata by libspectrum.
 
 For TZX_CSW, sample_rate gives the exact samples per second, while scale
 is only an integer tstates-per-sample approximation. A zero sample_rate

@@ -512,6 +512,78 @@ rejected( libspectrum_tape *tape, libspectrum_error expected )
 }
 
 test_return_t
+tape_text_encodings( void )
+{
+  static const libspectrum_byte tzx[] = {
+    'Z', 'X', 'T', 'a', 'p', 'e', '!', 0x1a, 1, 20,
+    0x32, 7, 0, 2, 0, 1, 0xe9, 2, 1, 0x80,
+    0x30, 1, 0x93
+  };
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape *dest = libspectrum_tape_alloc();
+  libspectrum_tape_block *b;
+  libspectrum_tape_iterator it;
+  libspectrum_byte *out = NULL;
+  char *converted = NULL;
+  size_t length = 0, n, archives, comments;
+  test_return_t result = TEST_FAIL;
+  if( internal_tape_text_convert( "\xe9\x80\x93", 1, &converted ) ||
+      strcmp( converted, "\xc3\xa9\xe2\x82\xac\xe2\x80\x9c" ) ) goto done;
+  libspectrum_free( converted ); converted = NULL;
+  if( internal_tape_text_convert( "A\xc3", 2, &converted ) ||
+      strcmp( converted, "A?" ) ) goto done;
+  libspectrum_free( converted ); converted = NULL;
+  /* Unsupported scalars must not prevent export; exact transliteration varies. */
+  if( internal_tape_text_convert( "a\xc4\x81\xf0\x9f\x98\x80z", 0, &converted ) ||
+      !*converted || converted[0] != 'a' ||
+      converted[strlen( converted ) - 1] != 'z' ) goto done;
+  libspectrum_free( converted ); converted = NULL;
+  if( libspectrum_tape_read( tape, tzx, sizeof( tzx ),
+                            LIBSPECTRUM_ID_TAPE_TZX, NULL ) ) goto done;
+  for( n = 0; n < 6; n++ ) {
+    libspectrum_id_t format = n & 1 ? LIBSPECTRUM_ID_TAPE_TZX : LIBSPECTRUM_ID_TAPE_PZX;
+    archives = comments = 0;
+    for( b = libspectrum_tape_iterator_init( &it, tape ); b;
+         b = libspectrum_tape_iterator_next( &it ) ) {
+      if( libspectrum_tape_block_type( b ) == LIBSPECTRUM_TAPE_BLOCK_ARCHIVE_INFO ) {
+        if( libspectrum_tape_block_count( b ) != 2 ||
+            strcmp( libspectrum_tape_block_texts( b, 0 ), "\xc3\xa9" ) ||
+            strcmp( libspectrum_tape_block_texts( b, 1 ), "\xe2\x82\xac" ) ) goto done;
+        archives++;
+      } else if( libspectrum_tape_block_type( b ) == LIBSPECTRUM_TAPE_BLOCK_COMMENT ) {
+        if( strcmp( libspectrum_tape_block_text( b ), "\xe2\x80\x9c" ) ) goto done;
+        comments++;
+      }
+    }
+    if( archives != 1 || comments != 1 ||
+        libspectrum_tape_write( &out, &length, tape, format ) ||
+        libspectrum_tape_read( dest, out, length, format, NULL ) ) goto done;
+    libspectrum_tape_free( tape ); tape = dest; dest = libspectrum_tape_alloc();
+    libspectrum_free( out ); out = NULL; length = 0;
+  }
+  /* TZX byte limits apply after UTF-8-to-CP1252 conversion. */
+  libspectrum_tape_clear( tape );
+  {
+    char *text = libspectrum_new( char, 513 );
+    for( n = 0; n < 256; n++ ) { text[2*n] = '\xc3'; text[2*n+1] = '\xa9'; }
+    text[400] = 0;
+    b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_COMMENT );
+    libspectrum_tape_block_set_text( b, text );
+    libspectrum_tape_append_block( tape, b );
+    if( libspectrum_tape_write( &out, &length, tape, LIBSPECTRUM_ID_TAPE_TZX ) ||
+        strlen( text ) != 400 || length != 212 || out[11] != 200 ) goto done;
+    text[400] = '\xc3'; text[512] = 0;
+    if( !rejected_format( tape, LIBSPECTRUM_ERROR_INVALID, LIBSPECTRUM_ID_TAPE_TZX ) )
+      goto done;
+  }
+  result = TEST_PASS;
+done:
+  libspectrum_free( converted ); libspectrum_free( out );
+  libspectrum_tape_free( tape ); libspectrum_tape_free( dest );
+  return result;
+}
+
+test_return_t
 pzx_write_generalised_invalid( void )
 {
   libspectrum_tape *tape = libspectrum_tape_alloc();

@@ -118,8 +118,11 @@ write_legacy_pulses( pzx_writer *writer, libspectrum_tape_block *block )
 static void
 write_string( libspectrum_buffer *body, const char *s )
 {
-  if( !s ) s = "";
-  libspectrum_buffer_write( body, (const libspectrum_byte *)s, strlen( s ) + 1 );
+  char *utf8;
+  internal_tape_text_convert( s, 2, &utf8 );
+  libspectrum_buffer_write( body, (const libspectrum_byte *)utf8,
+                            strlen( utf8 ) + 1 );
+  libspectrum_free( utf8 );
 }
 
 static libspectrum_error
@@ -623,10 +626,15 @@ write_block( pzx_writer *writer, libspectrum_tape_block *block )
     return write_pause( writer, pause, writer->first );
   case LIBSPECTRUM_TAPE_BLOCK_STOP48: return write_stop( writer, PZX_STOP_48K );
   case LIBSPECTRUM_TAPE_BLOCK_COMMENT:
-    text = libspectrum_tape_block_text( block );
-    if( text ) libspectrum_buffer_write( writer->body,
-      (const libspectrum_byte *)text, strlen( text ) );
-    return write_chunk( writer, PZX_BROWSE );
+    {
+      char *utf8;
+      text = libspectrum_tape_block_text( block );
+      internal_tape_text_convert( text, 2, &utf8 );
+      libspectrum_buffer_write( writer->body,
+        (const libspectrum_byte *)utf8, strlen( utf8 ) );
+      libspectrum_free( utf8 );
+      return write_chunk( writer, PZX_BROWSE );
+    }
   case LIBSPECTRUM_TAPE_BLOCK_CONCAT:
     libspectrum_buffer_write_byte( writer->body, PZX_VERSION_MAJOR );
     libspectrum_buffer_write_byte( writer->body, PZX_VERSION_MINOR );

@@ -600,7 +600,8 @@ pzx_read_string( const libspectrum_byte **ptr, const libspectrum_byte *end,
 {
   const libspectrum_byte *nul;
   size_t length;
-  char *ptr2;
+  char *ptr2, *utf8;
+  libspectrum_error error;
 
   /* Locate the NUL terminator within the available data; if absent, treat
      end-of-block as the string boundary */
@@ -617,5 +618,9 @@ pzx_read_string( const libspectrum_byte **ptr, const libspectrum_byte *end,
   /* Translate line endings */
   for( ptr2 = *dest; *ptr2; ptr2++ ) if( *ptr2 == '\r' ) *ptr2 = '\n';
 
+  error = internal_tape_text_convert( *dest, 2, &utf8 );
+  if( error ) return error;
+  libspectrum_free( *dest );
+  *dest = utf8;
   return LIBSPECTRUM_ERROR_NONE;
 }

@@ -56,6 +56,7 @@ libspectrum_la_SOURCES = bzip2.c \
 			 tape.c \
 			 tape_accessors.c \
 			 tape_block.c \
+			 tape_text.c \
 			 tape_set.c \
 		 	 timings.c \
 			 tzx_read.c \
@@ -96,7 +97,7 @@ endif
 ##   compatible.
 libspectrum_la_LDFLAGS = -version-info 21:0:0 -no-undefined @WINDRES_LDFLAGS@ @WAV_BACKEND_LDFLAGS@
 
-libspectrum_la_LIBADD = @WAV_BACKEND_LIBADD@ @GLIB_LIBS@ -lm
+libspectrum_la_LIBADD = @WAV_BACKEND_LIBADD@ @GLIB_LIBS@ @ICONV_LIBS@ -lm
 
 libspectrum_la_DEPENDENCIES = @WINDRES_OBJ@
 

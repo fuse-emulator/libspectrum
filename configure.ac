@@ -128,6 +128,33 @@ if test "$prefix" != "NONE"; then
   CPPFLAGS="$CPPFLAGS -I$prefix/include"; LDFLAGS="$LDFLAGS -L$prefix/lib"
 fi)
 
+dnl Optional CP1252 to UTF-8 conversion for PZX metadata.
+AC_ARG_WITH(iconv,
+[  --without-iconv         don't use iconv],
+[], [with_iconv=yes])
+ICONV_LIBS=
+AS_IF([test "$with_iconv" != no], [
+  AC_CHECK_HEADERS([iconv.h], [
+    save_LIBS="$LIBS"
+    AC_SEARCH_LIBS([iconv_open], [iconv], [
+      AS_IF([test "$ac_cv_search_iconv_open" != "none required"],
+            [ICONV_LIBS="$ac_cv_search_iconv_open"])
+      AC_DEFINE([HAVE_ICONV], [1], [Define if iconv is available.])
+      AC_CACHE_CHECK([whether iconv requires a const input pointer],
+        [libspectrum_cv_iconv_const], [
+        AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <iconv.h>
+extern size_t iconv( iconv_t, char **, size_t *, char **, size_t * );]], [[]])],
+          [libspectrum_cv_iconv_const=no], [libspectrum_cv_iconv_const=yes])
+      ])
+      AS_IF([test "$libspectrum_cv_iconv_const" = yes],
+        [AC_DEFINE([ICONV_CONST], [const], [Input pointer qualifier for iconv.])],
+        [AC_DEFINE([ICONV_CONST], [], [Input pointer qualifier for iconv.])])
+    ])
+    LIBS="$save_LIBS"
+  ])
+])
+AC_SUBST([ICONV_LIBS])
+
 dnl Check whether to use zlib (the UNIX version is called z, Win32 zdll)
 AC_MSG_CHECKING(whether to use zlib)
 AC_ARG_WITH(zlib,
