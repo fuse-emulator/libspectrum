@@ -315,6 +315,8 @@ test_description tests[] = {
   TEST_ENTRY( snap_zxcf_active_upload_memctl_and_pages_getter_setter, "Snap ZXCF active, upload, memctl, and pages getter/setter" ),
   TEST_ENTRY( snap_zxcf_ram_page_pointer_array_getter_setter, "Snap ZXCF RAM page pointer array getter/setter" ),
   TEST_ENTRY( pzx_large_payload_bounds, "PZX payloads over 255 bytes and truncated/oversized counts" ),
+  TEST_ENTRY( pzx_generalised_symbol_semantics, "Generalised symbols obey terminators and explicit boundary polarity" ),
+  TEST_ENTRY( pzx_terminal_cancelled_edge, "PZX timed terminal events preserve cancelled transitions and rewind" ),
   TEST_ENTRY( pzx_write_generalised, "PZX generalised data preserves timed waveform runs" ),
   TEST_ENTRY( pzx_write_generalised_invalid, "PZX invalid generalised data preserves output and playback" ),
   TEST_ENTRY( pzx_write_recordings_invalid, "PZX malformed recordings preserve output and playback" ),

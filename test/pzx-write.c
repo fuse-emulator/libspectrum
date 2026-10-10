@@ -86,6 +86,102 @@ generalised_block( size_t alphabet, int pilot, int pause )
 }
 
 test_return_t
+pzx_generalised_symbol_semantics( void )
+{
+  static const libspectrum_dword durations[] = { 303, 103, 300, 300 };
+  static const int levels[] = { LIBSPECTRUM_TAPE_SIGNAL_LOW,
+    LIBSPECTRUM_TAPE_SIGNAL_HIGH, LIBSPECTRUM_TAPE_SIGNAL_LOW,
+    LIBSPECTRUM_TAPE_SIGNAL_HIGH };
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape *dest = libspectrum_tape_alloc();
+  libspectrum_byte *out = NULL;
+  libspectrum_dword actual[64];
+  int actual_levels[64];
+  size_t n, i, count, length = 0;
+  test_return_t result = TEST_FAIL;
+  for( n = 0; n < 16; n++ ) {
+    libspectrum_tape_block *b;
+    libspectrum_tape_generalised_data_block *g;
+    libspectrum_tape_generalised_data_symbol_table *table;
+    libspectrum_tape_clear( tape ); libspectrum_tape_clear( dest );
+    b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL );
+    libspectrum_tape_block_set_level( b, 1 );
+    libspectrum_tape_append_block( tape, b );
+    b = generalised_block( 4, n & 1, 0 );
+    g = &b->types.generalised_data;
+    table = n & 1 ? &g->pilot_table : &g->data_table;
+    table->max_pulses = n & 2 ? 1 : 3;
+    for( i = 0; i < 4; i++ ) {
+      table->symbols[i].lengths[1] = 0;
+      table->symbols[i].lengths[2] = 999; /* Must not play past a terminator. */
+      if( n & 1 ) g->pilot_repeats[i] = 1;
+    }
+    libspectrum_tape_append_block( tape, b );
+    b = generalised_block( 1, n & 1, 0 );
+    g = &b->types.generalised_data;
+    table = n & 1 ? &g->pilot_table : &g->data_table;
+    table->symbols[0].edge_type = n / 4;
+    table->symbols[0].lengths[0] = 0; /* Empty, irrespective of polarity. */
+    table->symbols[0].lengths[1] = 999;
+    table->symbols[0].lengths[2] = 999;
+    libspectrum_tape_append_block( tape, b );
+    b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PURE_TONE );
+    libspectrum_tape_block_set_count( b, 2 );
+    libspectrum_tape_block_set_pulse_length( b, 300 );
+    libspectrum_tape_append_block( tape, b );
+    if( libspectrum_tape_nth_block( tape, 0 ) ||
+        libspectrum_tape_write( &out, &length, tape, LIBSPECTRUM_ID_TAPE_PZX ) ||
+        libspectrum_tape_read( dest, out, length, LIBSPECTRUM_ID_TAPE_PZX, NULL ) )
+      goto done;
+    for( i = 0; i < 2; i++ ) {
+      if( !collect_runs( i ? dest : tape, actual, actual_levels, &count ) ||
+          count != 4 || memcmp( actual, durations, sizeof( durations ) ) ||
+          memcmp( actual_levels, levels, sizeof( levels ) ) ) goto done;
+    }
+    libspectrum_free( out ); out = NULL; length = 0;
+  }
+  result = TEST_PASS;
+done:
+  libspectrum_free( out );
+  libspectrum_tape_free( tape ); libspectrum_tape_free( dest );
+  return result;
+}
+
+test_return_t
+pzx_terminal_cancelled_edge( void )
+{
+  static const libspectrum_byte data[] = {
+    'P', 'Z', 'X', 'T', 2, 0, 0, 0, 1, 0,
+    'P', 'U', 'L', 'S', 6, 0, 0, 0, 100, 0, 0, 0, 200, 0
+  };
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape_edge edge;
+  libspectrum_tape_signal_level level;
+  size_t i;
+  test_return_t result = TEST_FAIL;
+  if( libspectrum_tape_read( tape, data, sizeof( data ),
+                            LIBSPECTRUM_ID_TAPE_PZX, NULL ) ) goto done;
+  for( i = 0; i < 2; i++ ) {
+    if( libspectrum_tape_get_next_edge( &edge, tape ) ||
+        edge.tstates != 100 || edge.level != LIBSPECTRUM_TAPE_SIGNAL_LOW ||
+        edge.transition != LIBSPECTRUM_TAPE_TRANSITION_FORCE_LOW || edge.flags )
+      goto done;
+    if( libspectrum_tape_get_next_edge( &edge, tape ) ||
+        edge.tstates != 200 || edge.level != LIBSPECTRUM_TAPE_SIGNAL_LOW ||
+        edge.transition != LIBSPECTRUM_TAPE_TRANSITION_NONE ||
+        edge.flags != ( LIBSPECTRUM_TAPE_FLAGS_BLOCK |
+                        LIBSPECTRUM_TAPE_FLAGS_STOP |
+                        LIBSPECTRUM_TAPE_FLAGS_TAPE ) ) goto done;
+    if( libspectrum_tape_signal_level_get( &level, tape ) ||
+        level != LIBSPECTRUM_TAPE_SIGNAL_LOW ) goto done;
+  }
+  result = TEST_PASS;
+done:
+  libspectrum_tape_free( tape );
+  return result;
+}
+
+test_return_t
 pzx_write_generalised( void )
 {
   static const libspectrum_byte cancelled_edge[] = {

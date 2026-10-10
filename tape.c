@@ -655,9 +655,9 @@ libspectrum_tape_get_next_edge_internal( libspectrum_dword *tstates,
       if( libspectrum_tape_iterator_current( it->current_block ) == NULL ) {
 	*flags |= LIBSPECTRUM_TAPE_FLAGS_STOP;
         *flags |= LIBSPECTRUM_TAPE_FLAGS_TAPE;
-        /* Need to have an edge at the end of the tape to terminate the last
-           pulse so clear the NO_EDGE flag if it has been set */
-        *flags &= ~LIBSPECTRUM_TAPE_FLAGS_NO_EDGE;
+        /* A zero-time terminal event closes the last pulse. A timed event
+           still describes that pulse, so preserve its transition semantics. */
+        if( !*tstates ) *flags &= ~LIBSPECTRUM_TAPE_FLAGS_NO_EDGE;
         libspectrum_tape_iterator_init( &(it->current_block), tape );
         end_of_block = END_OF_BLOCK_NEXT_LOW;
       }
@@ -1299,6 +1299,13 @@ set_tstates_and_flags( libspectrum_tape_generalised_data_symbol *symbol,
 {
   *tstates = symbol->lengths[ edge ];
 
+  /* A zero length terminates the symbol; it is not a zero-time pulse.
+     An empty symbol therefore has no polarity effect. */
+  if( !*tstates ) {
+    *flags |= LIBSPECTRUM_TAPE_FLAGS_NO_EDGE;
+    return;
+  }
+
   if( !edge ) {
     switch( symbol->edge_type ) {
     case LIBSPECTRUM_TAPE_GENERALISED_DATA_SYMBOL_EDGE:
@@ -1336,8 +1343,8 @@ generalised_data_edge( libspectrum_tape_generalised_data_block *block,
 			   flags );
 
     state->edges_through_symbol++;
-    if( state->edges_through_symbol == table->max_pulses    ||
-	symbol->lengths[ state->edges_through_symbol ] == 0    ) {
+    if( !*tstates || state->edges_through_symbol == table->max_pulses ||
+        symbol->lengths[ state->edges_through_symbol ] == 0 ) {
       state->edges_through_symbol = 0;
       if( ++state->symbols_through_run == block->pilot_repeats[ state->run ] ) {
 	state->symbols_through_run = 0;
@@ -1365,8 +1372,8 @@ generalised_data_edge( libspectrum_tape_generalised_data_block *block,
 			   flags );
 
     state->edges_through_symbol++;
-    if( state->edges_through_symbol == table->max_pulses    ||
-	symbol->lengths[ state->edges_through_symbol ] == 0    ) {
+    if( !*tstates || state->edges_through_symbol == table->max_pulses ||
+        symbol->lengths[ state->edges_through_symbol ] == 0 ) {
       if( ++state->symbols_through_stream == table->symbols_in_block ) {
 	state->state = LIBSPECTRUM_TAPE_STATE_PAUSE;
       } else {
