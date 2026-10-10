@@ -22,10 +22,15 @@
 #include "pzx_internals.h"
 #include "tape_block.h"
 
+/* Control-flow expansion is deliberately bounded, including metadata and
+   control blocks. Ordinary linear tapes retain their existing size limits. */
+#define PZX_MAX_VISITS 65536
+#define PZX_MAX_EXPANDED_SIZE ( 64 * 1024 * 1024 )
+
 typedef struct pzx_writer {
   libspectrum_buffer *out, *body;
   libspectrum_tape_block_state state;
-  int need_playback, level, first, last, in_group;
+  int need_playback, level, first, last, in_group, bounded;
 } pzx_writer;
 
 typedef struct legacy_data {
@@ -38,6 +43,11 @@ write_chunk( pzx_writer *writer, const char *tag )
 {
   size_t size = libspectrum_buffer_get_data_size( writer->body );
   if( size > UINT32_MAX ) return LIBSPECTRUM_ERROR_INVALID;
+  if( writer->bounded &&
+      ( size > PZX_MAX_EXPANDED_SIZE - 8 ||
+        libspectrum_buffer_get_data_size( writer->out ) >
+          PZX_MAX_EXPANDED_SIZE - 8 - size ) )
+    return LIBSPECTRUM_ERROR_INVALID;
   libspectrum_buffer_write( writer->out, (const libspectrum_byte *)tag, 4 );
   libspectrum_buffer_write_dword( writer->out, size );
   libspectrum_buffer_write_buffer( writer->out, writer->body );
@@ -136,7 +146,8 @@ write_pause( pzx_writer *writer, libspectrum_dword duration, int level )
 /* Use private playback state for legacy polarity and pause levels, never
    the caller's position, without duplicating playback boundary rules. */
 static libspectrum_error
-inspect_block( pzx_writer *writer, libspectrum_tape *tape )
+inspect_block( pzx_writer *writer, libspectrum_tape *tape,
+               libspectrum_tape_iterator next )
 {
   libspectrum_error error;
   libspectrum_dword duration;
@@ -147,6 +158,15 @@ inspect_block( pzx_writer *writer, libspectrum_tape *tape )
                   type == LIBSPECTRUM_TAPE_BLOCK_TZX_CSW ||
                   type == LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA;
   int flags, initial = 1, next_level = 0;
+  if( type == LIBSPECTRUM_TAPE_BLOCK_JUMP ) {
+    /* A jump is a zero-time, no-edge event. Preserve both the held level
+       and any pending low reset; use the checked target without searching
+       the source list again on every visit. */
+    if( !next ) return LIBSPECTRUM_ERROR_LOGIC;
+    writer->state.current_block = next;
+    return libspectrum_tape_block_init(
+      libspectrum_tape_iterator_current( next ), &writer->state );
+  }
   if( type == LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE &&
       !libspectrum_tape_block_data_length( block ) ) {
     block = libspectrum_tape_iterator_next( &writer->state.current_block );
@@ -254,11 +274,10 @@ validate_sequence( libspectrum_tape_block *block )
 }
 
 static libspectrum_error
-validate_pause( pzx_writer *writer, libspectrum_tape_block *block )
+validate_pause( libspectrum_tape_block *block )
 {
   int level = libspectrum_tape_block_level( block );
   libspectrum_dword pause = libspectrum_tape_block_pause_tstates( block );
-  if( level == -1 && pause ) writer->need_playback = 1;
   if( pause > PZX_VALUE_MASK || level < -1 || level > 1 )
     return LIBSPECTRUM_ERROR_INVALID;
   return LIBSPECTRUM_ERROR_NONE;
@@ -367,18 +386,37 @@ validate_recording( libspectrum_tape_block *block )
   return LIBSPECTRUM_ERROR_NONE;
 }
 
+static int
+needs_playback( libspectrum_tape_block *block )
+{
+  switch( libspectrum_tape_block_type( block ) ) {
+  case LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA:
+  case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
+  case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
+  case LIBSPECTRUM_TAPE_BLOCK_PURE_TONE:
+  case LIBSPECTRUM_TAPE_BLOCK_PULSES:
+  case LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL:
+  case LIBSPECTRUM_TAPE_BLOCK_ROM:
+  case LIBSPECTRUM_TAPE_BLOCK_TURBO:
+  case LIBSPECTRUM_TAPE_BLOCK_PURE_DATA: return 1;
+  case LIBSPECTRUM_TAPE_BLOCK_PAUSE:
+    return libspectrum_tape_block_level( block ) == -1 &&
+           libspectrum_tape_block_pause_tstates( block );
+  default: return 0;
+  }
+}
+
 static libspectrum_error
 validate_block( pzx_writer *writer, libspectrum_tape_block *block )
 {
   legacy_data data;
   size_t i;
+  writer->need_playback |= needs_playback( block );
   switch( libspectrum_tape_block_type( block ) ) {
   case LIBSPECTRUM_TAPE_BLOCK_GENERALISED_DATA:
-    writer->need_playback = 1;
     return validate_generalised( block );
   case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
   case LIBSPECTRUM_TAPE_BLOCK_TZX_CSW:
-    writer->need_playback = 1;
     return validate_recording( block );
   case LIBSPECTRUM_TAPE_BLOCK_RAW_DATA:
     {
@@ -394,13 +432,11 @@ validate_block( pzx_writer *writer, libspectrum_tape_block *block )
       return LIBSPECTRUM_ERROR_NONE;
     }
   case LIBSPECTRUM_TAPE_BLOCK_PURE_TONE:
-    writer->need_playback = 1;
     if( !libspectrum_tape_block_count( block ) ||
         libspectrum_tape_block_pulse_length( block ) > PZX_VALUE_MASK )
       return LIBSPECTRUM_ERROR_INVALID;
     return LIBSPECTRUM_ERROR_NONE;
   case LIBSPECTRUM_TAPE_BLOCK_PULSES:
-    writer->need_playback = 1;
     if( !libspectrum_tape_block_count( block ) )
       return LIBSPECTRUM_ERROR_INVALID;
     for( i = 0; i < libspectrum_tape_block_count( block ); i++ )
@@ -408,18 +444,16 @@ validate_block( pzx_writer *writer, libspectrum_tape_block *block )
         return LIBSPECTRUM_ERROR_INVALID;
     return LIBSPECTRUM_ERROR_NONE;
   case LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL:
-    writer->need_playback = 1;
     return libspectrum_tape_block_level( block ) < 0 ||
            libspectrum_tape_block_level( block ) > 1 ?
            LIBSPECTRUM_ERROR_INVALID : LIBSPECTRUM_ERROR_NONE;
   case LIBSPECTRUM_TAPE_BLOCK_ROM:
   case LIBSPECTRUM_TAPE_BLOCK_TURBO:
   case LIBSPECTRUM_TAPE_BLOCK_PURE_DATA:
-    writer->need_playback = 1;
     return get_legacy_data( block, &data );
   case LIBSPECTRUM_TAPE_BLOCK_PULSE_SEQUENCE: return validate_sequence( block );
   case LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK: return validate_native_data( block );
-  case LIBSPECTRUM_TAPE_BLOCK_PAUSE: return validate_pause( writer, block );
+  case LIBSPECTRUM_TAPE_BLOCK_PAUSE: return validate_pause( block );
   case LIBSPECTRUM_TAPE_BLOCK_ARCHIVE_INFO: return validate_archive( block );
   case LIBSPECTRUM_TAPE_BLOCK_GROUP_START:
     if( writer->in_group ) return LIBSPECTRUM_ERROR_INVALID;
@@ -428,6 +462,11 @@ validate_block( pzx_writer *writer, libspectrum_tape_block *block )
   case LIBSPECTRUM_TAPE_BLOCK_GROUP_END:
     if( !writer->in_group ) return LIBSPECTRUM_ERROR_INVALID;
     writer->in_group = 0;
+    return LIBSPECTRUM_ERROR_NONE;
+  case LIBSPECTRUM_TAPE_BLOCK_JUMP:
+  case LIBSPECTRUM_TAPE_BLOCK_LOOP_START:
+  case LIBSPECTRUM_TAPE_BLOCK_LOOP_END:
+    writer->bounded = 1;
     return LIBSPECTRUM_ERROR_NONE;
   case LIBSPECTRUM_TAPE_BLOCK_STOP48:
   case LIBSPECTRUM_TAPE_BLOCK_COMMENT:
@@ -440,21 +479,134 @@ validate_block( pzx_writer *writer, libspectrum_tape_block *block )
   }
 }
 
+typedef struct pzx_source_block {
+  libspectrum_tape_iterator node;
+  size_t loop, target;
+} pzx_source_block;
+
+/* Plan the path before playback or output. Jumps count every source block.
+   A jump may skip a whole loop, but may not enter or leave its body: doing so
+   would bypass the loop state established by its paired boundaries. */
 static libspectrum_error
-prepare_playback( pzx_writer *writer, libspectrum_tape *tape )
+plan_blocks( pzx_writer *writer, libspectrum_tape *tape,
+             libspectrum_tape_iterator **plan, size_t *visits )
+{
+  size_t count = libspectrum_tape_count( tape ), i, pc, loop = SIZE_MAX;
+  size_t active = SIZE_MAX, remaining = 0;
+  int in_group = 0;
+  pzx_source_block *source = NULL;
+  libspectrum_tape_iterator it;
+  libspectrum_error error = LIBSPECTRUM_ERROR_INVALID;
+  *plan = NULL;
+  *visits = count;
+  if( !writer->bounded ) return LIBSPECTRUM_ERROR_NONE;
+  *visits = 0;
+  *plan = libspectrum_new( libspectrum_tape_iterator, PZX_MAX_VISITS );
+  source = libspectrum_new( pzx_source_block, count );
+  libspectrum_tape_iterator_init( &it, tape );
+  for( i = 0; it; i++, it = it->next ) {
+    libspectrum_tape_block *block = it->data;
+    source[i].node = it;
+    source[i].loop = loop;
+    switch( libspectrum_tape_block_type( block ) ) {
+    case LIBSPECTRUM_TAPE_BLOCK_LOOP_START:
+      if( loop != SIZE_MAX || libspectrum_tape_block_count( block ) < 2 ||
+          libspectrum_tape_block_count( block ) > 0xffff ) goto done;
+      loop = i;
+      break;
+    case LIBSPECTRUM_TAPE_BLOCK_LOOP_END:
+      if( loop == SIZE_MAX ) goto done;
+      loop = SIZE_MAX;
+      break;
+    default: break;
+    }
+  }
+  if( loop != SIZE_MAX ) goto done;
+  /* Validate even unreachable targets and structures, as for block payloads. */
+  for( i = 0; i < count; i++ ) {
+    libspectrum_tape_block *block = source[i].node->data;
+    if( libspectrum_tape_block_type( block ) == LIBSPECTRUM_TAPE_BLOCK_JUMP ) {
+      int offset = libspectrum_tape_block_offset( block );
+      size_t target;
+      if( !offset || offset < -32768 || offset > 32767 ) goto done;
+      if( offset < 0 ) {
+        size_t distance = (size_t)( -( offset + 1 ) ) + 1;
+        if( distance > i ) goto done;
+        target = i - distance;
+      } else {
+        if( (size_t)offset >= count - i ) goto done;
+        target = i + offset;
+      }
+      if( source[i].loop != source[target].loop ) goto done;
+      source[i].target = target;
+    }
+  }
+  for( pc = 0; pc < count; ) {
+    libspectrum_tape_block *block = source[pc].node->data;
+    if( *visits == PZX_MAX_VISITS ) goto done;
+    (*plan)[(*visits)++] = source[pc].node;
+    switch( libspectrum_tape_block_type( block ) ) {
+    case LIBSPECTRUM_TAPE_BLOCK_JUMP:
+      pc = source[pc].target;
+      break;
+    case LIBSPECTRUM_TAPE_BLOCK_LOOP_START:
+      if( active != SIZE_MAX ) goto done;
+      active = pc++;
+      remaining = libspectrum_tape_block_count( block );
+      break;
+    case LIBSPECTRUM_TAPE_BLOCK_LOOP_END:
+      if( active != source[pc].loop ) goto done;
+      if( --remaining ) pc = active + 1;
+      else { active = SIZE_MAX; pc++; }
+      break;
+    case LIBSPECTRUM_TAPE_BLOCK_GROUP_START:
+      if( in_group ) goto done;
+      in_group = 1;
+      pc++;
+      break;
+    case LIBSPECTRUM_TAPE_BLOCK_GROUP_END:
+      if( !in_group ) goto done;
+      in_group = 0;
+      pc++;
+      break;
+    default: pc++; break;
+    }
+  }
+  if( in_group || active != SIZE_MAX ) goto done;
+  error = LIBSPECTRUM_ERROR_NONE;
+done:
+  libspectrum_free( source );
+  if( error ) {
+    libspectrum_free( *plan ); *plan = NULL; *visits = 0;
+  }
+  return error;
+}
+
+static libspectrum_error
+prepare_playback( pzx_writer *writer, libspectrum_tape *tape,
+                  libspectrum_tape_iterator *plan, size_t visits )
 {
   libspectrum_tape_iterator it;
   libspectrum_tape_block *block;
+  size_t i;
+  if( plan ) {
+    writer->need_playback = 0;
+    for( i = 0; i < visits; i++ )
+      writer->need_playback |= needs_playback(
+        libspectrum_tape_iterator_current( plan[i] ) );
+  }
   if( !writer->need_playback ) return LIBSPECTRUM_ERROR_NONE;
   /* Native-only writing accepts zero-pulse bit encodings, but playback
      inspection currently cannot handle them. */
-  for( block = libspectrum_tape_iterator_init( &it, tape ); block;
-       block = libspectrum_tape_iterator_next( &it ) ) {
+  libspectrum_tape_iterator_init( &it, tape );
+  for( i = 0; i < visits; i++ ) {
+    block = libspectrum_tape_iterator_current( plan ? plan[i] : it );
     if( libspectrum_tape_block_type( block ) == LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK &&
         libspectrum_tape_block_count( block ) &&
         ( !libspectrum_tape_block_bit0_pulse_count( block ) ||
           !libspectrum_tape_block_bit1_pulse_count( block ) ) )
       return LIBSPECTRUM_ERROR_UNKNOWN;
+    if( !plan ) libspectrum_tape_iterator_next( &it );
   }
   writer->state.force_low_level = 1;
   if( libspectrum_tape_iterator_init( &it, tape ) &&
@@ -633,6 +785,9 @@ write_block( pzx_writer *writer, libspectrum_tape_block *block )
     if( !pause ) return write_stop( writer, PZX_STOP_ALWAYS );
     return write_pause( writer, pause, writer->first );
   case LIBSPECTRUM_TAPE_BLOCK_STOP48: return write_stop( writer, PZX_STOP_48K );
+  case LIBSPECTRUM_TAPE_BLOCK_JUMP:
+  case LIBSPECTRUM_TAPE_BLOCK_LOOP_START:
+  case LIBSPECTRUM_TAPE_BLOCK_LOOP_END:
   case LIBSPECTRUM_TAPE_BLOCK_GROUP_END: return LIBSPECTRUM_ERROR_NONE;
   case LIBSPECTRUM_TAPE_BLOCK_GROUP_START:
   case LIBSPECTRUM_TAPE_BLOCK_COMMENT:
@@ -657,8 +812,9 @@ write_block( pzx_writer *writer, libspectrum_tape_block *block )
 libspectrum_error
 internal_pzx_write( libspectrum_buffer *out, libspectrum_tape *tape )
 {
-  libspectrum_tape_iterator it;
+  libspectrum_tape_iterator it, *plan = NULL;
   libspectrum_tape_block *block;
+  size_t visits = 0, i;
   pzx_writer writer;
   libspectrum_error error = LIBSPECTRUM_ERROR_NONE;
   memset( &writer, 0, sizeof( writer ) );
@@ -673,7 +829,9 @@ internal_pzx_write( libspectrum_buffer *out, libspectrum_tape *tape )
     error = LIBSPECTRUM_ERROR_INVALID;
     goto done;
   }
-  error = prepare_playback( &writer, tape );
+  error = plan_blocks( &writer, tape, &plan, &visits );
+  if( error ) goto done;
+  error = prepare_playback( &writer, tape, plan, visits );
   if( error ) goto done;
   /* Leading archive information supplies the initial title/header itself. */
   block = libspectrum_tape_iterator_init( &it, tape );
@@ -683,17 +841,26 @@ internal_pzx_write( libspectrum_buffer *out, libspectrum_tape *tape )
     error = write_chunk( &writer, PZX_HEADER );
     if( error ) goto done;
   }
-  for( ; block; block = libspectrum_tape_iterator_next( &it ) ) {
+  for( i = 0; i < visits; i++ ) {
+    libspectrum_tape_iterator current = plan ? plan[i] : it;
+    block = libspectrum_tape_iterator_current( current );
     if( writer.need_playback ) {
-      error = inspect_block( &writer, tape );
+      if( writer.state.current_block != current ) {
+        error = LIBSPECTRUM_ERROR_LOGIC;
+        goto done;
+      }
+      error = inspect_block( &writer, tape,
+                             plan && i + 1 < visits ? plan[i + 1] : NULL );
       if( error ) goto done;
     } else if( libspectrum_tape_block_type( block ) == LIBSPECTRUM_TAPE_BLOCK_PAUSE ) {
       writer.first = libspectrum_tape_block_level( block );
     }
     error = write_block( &writer, block );
     if( error ) goto done;
+    if( !plan ) libspectrum_tape_iterator_next( &it );
   }
 done:
+  libspectrum_free( plan );
   libspectrum_buffer_free( writer.body );
   return error;
 }

@@ -45,6 +45,7 @@ test_test_SOURCES = \
 	test/tape.c \
 	test/tape-text.c \
 	test/pzx-write.c \
+	test/pzx-flow.c \
 	test/csw-write.c \
 	test/tap-pzx.c \
 	test/timings.c \

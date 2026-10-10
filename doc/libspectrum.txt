@@ -1179,7 +1179,10 @@ into `*buffer'. On entry, '*buffer' is assumed to be allocated
 
 PZX output (LIBSPECTRUM_ID_TAPE_PZX) writes PZX version 1.0. It supports
 PULSE_SEQUENCE, DATA_BLOCK, PAUSE, STOP48, COMMENT (as BRWS), ARCHIVE_INFO
-(as PZXT) and CONCAT blocks, and converts ROM, TURBO and PURE_DATA blocks.
+(as PZXT) and CONCAT blocks, and converts ROM, TURBO, PURE_DATA, PURE_TONE,
+PULSES, RAW_DATA, RLE_PULSE, TZX_CSW and GENERALISED_DATA blocks.
+SET_SIGNAL_LEVEL affects subsequent conversion without emitting a chunk.
+Paired, non-nested groups become BRWS points at their starts; ends are omitted.
 Conversion preserves existing pulse polarity and total duration. The existing
 post-data pulse is stored in DATA.tail, up to its 65535-T-state limit. Any
 remainder is stored in a PAUS block at the same level, without adding time
@@ -1202,8 +1205,17 @@ inspection, so conversion time is proportional to the number of pulses.
 Native-only output with explicit levels does not require playback.
 Currently, DATA blocks with zero-pulse bit sequences can be written only
 on that native-only path: playback inspection cannot handle them.
-Control flow, raw recordings, CSW, generalised data and explicit signal-level
-blocks are not converted; they are rejected rather than silently dropped.
+JUMP and finite, non-nested LOOP_START/LOOP_END paths are flattened in
+execution order. Jump offsets must fit signed 16 bits and count all source
+blocks, including metadata. Loop counts must be 2..65535. Jumps may skip a whole loop but may
+not enter or leave its body. Groups must remain paired and non-nested along
+the expanded path. Skipped source blocks and structures are still validated.
+Tapes with control flow are limited to 65536 source-block visits (including
+control and metadata blocks) and 64 MiB of expanded PZX output. Invalid
+targets, malformed structures, cycles and excessive expansion return
+LIBSPECTRUM_ERROR_INVALID. STOP and STOP48 markers are retained, with the
+following tape content also converted. Selections and calls/returns are not
+flattened; unsupported blocks return LIBSPECTRUM_ERROR_UNKNOWN.
 Unknown PZX blocks/keys already discarded or normalised by the reader
 cannot be reconstructed by the writer.
 
