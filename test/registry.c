@@ -315,6 +315,8 @@ test_description tests[] = {
   TEST_ENTRY( snap_zxcf_active_upload_memctl_and_pages_getter_setter, "Snap ZXCF active, upload, memctl, and pages getter/setter" ),
   TEST_ENTRY( snap_zxcf_ram_page_pointer_array_getter_setter, "Snap ZXCF RAM page pointer array getter/setter" ),
   TEST_ENTRY( pzx_large_payload_bounds, "PZX payloads over 255 bytes and truncated/oversized counts" ),
+  TEST_ENTRY( pzx_write_raw_recordings, "PZX direct recordings preserve timed waveform runs" ),
+  TEST_ENTRY( pzx_write_raw_invalid, "PZX invalid direct recordings preserve output and playback" ),
   TEST_ENTRY( pzx_write_legacy_pulses_invalid, "PZX invalid legacy pulses preserve output and playback" ),
   TEST_ENTRY( pzx_write_legacy_pulses, "PZX pure tones and pulse lists preserve signal levels" ),
   TEST_ENTRY( pzx_write_waveforms, "PZX writer preserves native and legacy waveforms" ),

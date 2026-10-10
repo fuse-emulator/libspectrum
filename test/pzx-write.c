@@ -23,6 +23,74 @@
 #include "common.h"
 #include "test.h"
 
+/* Compare timed waveform runs, ignoring zero-time encoding transitions. */
+static int
+collect_runs( libspectrum_tape *tape, libspectrum_dword *durations,
+              int *levels, size_t *count )
+{
+  libspectrum_tape_edge edge;
+  size_t i;
+  *count = 0;
+  for( i = 0; i < 1000; i++ ) {
+    if( libspectrum_tape_get_next_edge( &edge, tape ) ) return 0;
+    if( edge.tstates ) {
+      if( *count && levels[*count - 1] == (int)edge.level ) {
+        durations[*count - 1] += edge.tstates;
+      } else {
+        if( *count == 64 ) return 0;
+        levels[*count] = edge.level;
+        durations[(*count)++] = edge.tstates;
+      }
+    }
+    if( edge.flags & LIBSPECTRUM_TAPE_FLAGS_TAPE ) return 1;
+  }
+  return 0;
+}
+
+test_return_t
+pzx_write_raw_recordings( void )
+{
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  libspectrum_tape *dest = libspectrum_tape_alloc();
+  libspectrum_byte *out = NULL;
+  libspectrum_dword expected[64], actual[64];
+  int expected_levels[64], actual_levels[64];
+  size_t length = 0, n, a, e;
+  test_return_t result = TEST_FAIL;
+  for( n = 0; n < 16; n++ ) {
+    libspectrum_tape_block *b;
+    libspectrum_byte *data = libspectrum_new( libspectrum_byte, 2 );
+    libspectrum_tape_clear( tape ); libspectrum_tape_clear( dest );
+    data[0] = n & 1 ? 0xff : 0x00;
+    data[1] = n & 2 ? 0xa5 : 0x5a;
+    b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_RAW_DATA );
+    libspectrum_tape_block_set_data( b, data );
+    libspectrum_tape_block_set_data_length( b, 2 );
+    libspectrum_tape_block_set_bit_length( b, n & 4 ? 65535 : 79 );
+    libspectrum_tape_block_set_bits_in_last_byte( b, n & 8 ? 3 : 0 );
+    libspectrum_set_pause_tstates( b, n & 1 ? 70000 : 0 );
+    libspectrum_tape_append_block( tape, b );
+    b = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_PURE_TONE );
+    libspectrum_tape_block_set_count( b, 2 );
+    libspectrum_tape_block_set_pulse_length( b, 100 );
+    libspectrum_tape_append_block( tape, b );
+    if( libspectrum_tape_nth_block( tape, 0 ) ||
+        libspectrum_tape_write( &out, &length, tape, LIBSPECTRUM_ID_TAPE_PZX ) ||
+        libspectrum_tape_read( dest, out, length, LIBSPECTRUM_ID_TAPE_PZX, NULL ) ||
+        !collect_runs( tape, expected, expected_levels, &e ) ||
+        !collect_runs( dest, actual, actual_levels, &a ) || a != e ||
+        memcmp( expected, actual, e * sizeof( expected[0] ) ) ||
+        memcmp( expected_levels, actual_levels, e * sizeof( expected_levels[0] ) ) )
+      goto done;
+    libspectrum_free( out ); out = NULL; length = 0;
+  }
+  result = TEST_PASS;
+done:
+  libspectrum_free( out );
+  libspectrum_tape_free( tape ); libspectrum_tape_free( dest );
+  return result;
+}
+
 test_return_t
 pzx_write_legacy_pulses( void )
 {
@@ -179,6 +247,32 @@ static int
 rejected( libspectrum_tape *tape, libspectrum_error expected )
 {
   return rejected_format( tape, expected, LIBSPECTRUM_ID_TAPE_PZX );
+}
+
+test_return_t
+pzx_write_raw_invalid( void )
+{
+  libspectrum_tape *tape = libspectrum_tape_alloc();
+  size_t i;
+  test_return_t result = TEST_FAIL;
+  for( i = 0; i < 5; i++ ) {
+    libspectrum_tape_block *b = libspectrum_tape_block_alloc(
+      LIBSPECTRUM_TAPE_BLOCK_RAW_DATA );
+    libspectrum_byte *data = libspectrum_new( libspectrum_byte, 1 );
+    data[0] = 0xa0;
+    libspectrum_tape_clear( tape );
+    libspectrum_tape_block_set_data( b, data );
+    libspectrum_tape_block_set_data_length( b, i == 0 ? 0 : 1 );
+    libspectrum_tape_block_set_bit_length( b, i == 1 ? 0 : i == 2 ? 65536 : 79 );
+    libspectrum_tape_block_set_bits_in_last_byte( b, i == 3 ? 9 : 8 );
+    libspectrum_set_pause_tstates( b, i == 4 ? 0x80000000U : 0 );
+    libspectrum_tape_append_block( tape, b );
+    if( !rejected( tape, LIBSPECTRUM_ERROR_INVALID ) ) goto done;
+  }
+  result = TEST_PASS;
+done:
+  libspectrum_tape_free( tape );
+  return result;
 }
 
 test_return_t

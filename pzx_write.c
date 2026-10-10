@@ -244,6 +244,19 @@ validate_block( pzx_writer *writer, libspectrum_tape_block *block )
   legacy_data data;
   size_t i;
   switch( libspectrum_tape_block_type( block ) ) {
+  case LIBSPECTRUM_TAPE_BLOCK_RAW_DATA:
+    {
+      size_t length = libspectrum_tape_block_data_length( block );
+      size_t used = libspectrum_tape_block_bits_in_last_byte( block );
+      if( !used ) used = 8;
+      if( !length || length > PZX_VALUE_MASK / 8 || used > 8 ||
+          !libspectrum_tape_block_data( block ) ||
+          !libspectrum_tape_block_bit_length( block ) ||
+          libspectrum_tape_block_bit_length( block ) > 0xffff ||
+          libspectrum_tape_block_pause_tstates( block ) > PZX_VALUE_MASK )
+        return LIBSPECTRUM_ERROR_INVALID;
+      return LIBSPECTRUM_ERROR_NONE;
+    }
   case LIBSPECTRUM_TAPE_BLOCK_PURE_TONE:
     writer->need_playback = 1;
     if( !libspectrum_tape_block_count( block ) ||
@@ -334,6 +347,33 @@ write_native_data( pzx_writer *writer, libspectrum_tape_block *block )
   libspectrum_buffer_write( writer->body, libspectrum_tape_block_data( block ),
                             ( bits + 7 ) / 8 );
   return write_chunk( writer, PZX_DATA );
+}
+
+/* Two pulses per sample return to low, independently of the sample value. */
+static libspectrum_error
+write_raw_data( pzx_writer *writer, libspectrum_tape_block *block )
+{
+  size_t length = libspectrum_tape_block_data_length( block );
+  size_t used = libspectrum_tape_block_bits_in_last_byte( block );
+  size_t bits;
+  libspectrum_dword duration = libspectrum_tape_block_bit_length( block );
+  libspectrum_dword pause = libspectrum_tape_block_pause_tstates( block );
+  const libspectrum_byte *data = libspectrum_tape_block_data( block );
+  libspectrum_error error;
+  int last;
+  if( !used ) used = 8;
+  bits = ( length - 1 ) * 8 + used;
+  write_data_header( writer->body, bits, 0, 0, 2, 2 );
+  libspectrum_buffer_write_word( writer->body, duration );
+  libspectrum_buffer_write_word( writer->body, 0 );
+  libspectrum_buffer_write_word( writer->body, 0 );
+  libspectrum_buffer_write_word( writer->body, duration );
+  libspectrum_buffer_write( writer->body, data, length );
+  error = write_chunk( writer, PZX_DATA );
+  if( error ) return error;
+  /* Raw playback pauses at the opposite level to the final sample. */
+  last = ( data[length - 1] >> ( 8 - used ) ) & 1;
+  return pause ? write_pause( writer, pause, !last ) : LIBSPECTRUM_ERROR_NONE;
 }
 
 static libspectrum_error
@@ -427,6 +467,7 @@ write_block( pzx_writer *writer, libspectrum_tape_block *block )
   case LIBSPECTRUM_TAPE_BLOCK_TURBO:
   case LIBSPECTRUM_TAPE_BLOCK_PURE_DATA: return write_legacy_data( writer, block );
   case LIBSPECTRUM_TAPE_BLOCK_DATA_BLOCK: return write_native_data( writer, block );
+  case LIBSPECTRUM_TAPE_BLOCK_RAW_DATA: return write_raw_data( writer, block );
   case LIBSPECTRUM_TAPE_BLOCK_PAUSE:
     pause = libspectrum_tape_block_pause_tstates( block );
     if( !pause ) return write_stop( writer, PZX_STOP_ALWAYS );
