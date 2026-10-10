@@ -25,7 +25,7 @@
 enum flow_type {
   FLOW_DONE, FLOW_TONE, FLOW_JUMP, FLOW_LOOP, FLOW_END, FLOW_COMMENT,
   FLOW_GROUP, FLOW_GROUP_END, FLOW_STOP, FLOW_STOP48, FLOW_LEVEL,
-  FLOW_RAW, FLOW_CSW
+  FLOW_RAW, FLOW_CSW, FLOW_MESSAGE, FLOW_HARDWARE, FLOW_CUSTOM
 };
 
 typedef struct flow_block {
@@ -78,6 +78,36 @@ flow_block_alloc( flow_block description )
   case FLOW_LEVEL:
     block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL );
     libspectrum_tape_block_set_level( block, description.value );
+    break;
+  case FLOW_MESSAGE:
+    block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_MESSAGE );
+    text = libspectrum_new( char, 14 );
+    memcpy( text, "Line 1\nLine 2", 14 );
+    libspectrum_tape_block_set_text( block, text );
+    libspectrum_tape_block_set_pause( block, description.value );
+    break;
+  case FLOW_HARDWARE:
+    {
+      int *types = libspectrum_new( int, 1 );
+      int *ids = libspectrum_new( int, 1 );
+      int *values = libspectrum_new( int, 1 );
+      types[0] = 0; ids[0] = 255; values[0] = 3;
+      block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_HARDWARE );
+      libspectrum_tape_block_set_count( block, 1 );
+      libspectrum_tape_block_set_types( block, types );
+      libspectrum_tape_block_set_ids( block, ids );
+      libspectrum_tape_block_set_values( block, values );
+      break;
+    }
+  case FLOW_CUSTOM:
+    block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_CUSTOM );
+    text = libspectrum_new( char, 17 );
+    memcpy( text, "Custom binary id", 17 );
+    data = libspectrum_new( libspectrum_byte, 4 );
+    data[0] = 0; data[1] = 0xff; data[2] = 0x80; data[3] = 0x1a;
+    libspectrum_tape_block_set_text( block, text );
+    libspectrum_tape_block_set_data( block, data );
+    libspectrum_tape_block_set_data_length( block, 4 );
     break;
   case FLOW_RAW:
     block = libspectrum_tape_block_alloc( LIBSPECTRUM_TAPE_BLOCK_RAW_DATA );
@@ -401,6 +431,82 @@ pzx_write_control_flow_visit_limit( void )
 done:
   if( cursor ) libspectrum_tape_cursor_free( cursor );
   libspectrum_free( out ); libspectrum_tape_free( tape );
+  return result;
+}
+
+test_return_t
+pzx_write_dropped_metadata( void )
+{
+  static const flow_block paths[][9] = {
+    { { FLOW_MESSAGE, 0, 0 }, { FLOW_HARDWARE, 0, 0 }, { FLOW_CUSTOM, 0, 0 } },
+    { { FLOW_TONE, 100, 2 }, { FLOW_MESSAGE, 3000, 0 }, { FLOW_HARDWARE, 0, 0 },
+      { FLOW_CUSTOM, 0, 0 }, { FLOW_TONE, 200, 1 } },
+    { { FLOW_JUMP, 4, 0 }, { FLOW_MESSAGE, 3000, 0 }, { FLOW_HARDWARE, 0, 0 },
+      { FLOW_CUSTOM, 0, 0 }, { FLOW_TONE, 200, 1 } },
+    { { FLOW_LOOP, 3, 0 }, { FLOW_TONE, 100, 1 }, { FLOW_MESSAGE, 3000, 0 },
+      { FLOW_HARDWARE, 0, 0 }, { FLOW_CUSTOM, 0, 0 }, { FLOW_END, 0, 0 },
+      { FLOW_TONE, 200, 1 } }
+  };
+  static const libspectrum_dword times[][4] = {
+    { 0 }, { 100, 100, 200 }, { 200 }, { 100, 100, 100, 200 }
+  };
+  static const int levels[][4] = { { 0 }, { 0, 1, 0 }, { 0 }, { 0, 1, 0, 1 } };
+  static const size_t counts[] = { 0, 3, 1, 4 }, blocks[] = { 0, 2, 1, 4 };
+  libspectrum_tape *tape = libspectrum_tape_alloc(), *dest = libspectrum_tape_alloc();
+  libspectrum_tape_cursor *cursor = NULL;
+  libspectrum_byte *out = NULL;
+  size_t length = 0, n;
+  test_return_t result = TEST_FAIL;
+  for( n = 0; n < 4; n++ ) {
+    libspectrum_tape_clear( tape ); libspectrum_tape_clear( dest );
+    append_path( tape, paths[n], 2 );
+    if( libspectrum_tape_nth_block( tape, 0 ) ) goto done;
+    cursor = libspectrum_tape_cursor_capture( tape );
+    if( libspectrum_tape_write( &out, &length, tape, LIBSPECTRUM_ID_TAPE_PZX ) ||
+        !playback_unchanged( tape, cursor ) ||
+        libspectrum_tape_read( dest, out, length, LIBSPECTRUM_ID_TAPE_PZX, NULL ) ||
+        libspectrum_tape_count( dest ) != blocks[n] ) goto done;
+    {
+      static const libspectrum_byte payload[] = { 0, 0xff, 0x80, 0x1a };
+      libspectrum_tape_iterator it;
+      libspectrum_tape_block *block;
+      for( block = libspectrum_tape_iterator_init( &it, tape ); block;
+           block = libspectrum_tape_iterator_next( &it ) ) {
+        switch( libspectrum_tape_block_type( block ) ) {
+        case LIBSPECTRUM_TAPE_BLOCK_MESSAGE:
+          if( strcmp( libspectrum_tape_block_text( block ), "Line 1\nLine 2" ) ||
+              libspectrum_tape_block_pause( block ) != ( n ? 3000 : 0 ) ) goto done;
+          break;
+        case LIBSPECTRUM_TAPE_BLOCK_HARDWARE:
+          if( libspectrum_tape_block_count( block ) != 1 ||
+              libspectrum_tape_block_types( block, 0 ) != 0 ||
+              libspectrum_tape_block_ids( block, 0 ) != 255 ||
+              libspectrum_tape_block_values( block, 0 ) != 3 ) goto done;
+          break;
+        case LIBSPECTRUM_TAPE_BLOCK_CUSTOM:
+          if( strcmp( libspectrum_tape_block_text( block ), "Custom binary id" ) ||
+              libspectrum_tape_block_data_length( block ) != sizeof( payload ) ||
+              memcmp( libspectrum_tape_block_data( block ), payload,
+                      sizeof( payload ) ) ) goto done;
+          break;
+        default: break;
+        }
+      }
+    }
+    if( n ) {
+      if( libspectrum_tape_nth_block( tape, 0 ) ||
+          !waveform_matches( tape, times[n], levels[n], counts[n] ) ||
+          !waveform_matches( dest, times[n], levels[n], counts[n] ) ) goto done;
+    } else if( length != 10 ) goto done;
+    libspectrum_tape_cursor_free( cursor ); cursor = NULL;
+    libspectrum_free( out ); out = NULL; length = 0;
+  }
+  result = TEST_PASS;
+done:
+  if( result != TEST_PASS )
+    fprintf( stderr, "%s: dropped metadata case %lu failed\n", progname, (unsigned long)n );
+  if( cursor ) libspectrum_tape_cursor_free( cursor );
+  libspectrum_free( out ); libspectrum_tape_free( tape ); libspectrum_tape_free( dest );
   return result;
 }
 

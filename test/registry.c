@@ -322,6 +322,7 @@ test_description tests[] = {
   TEST_ENTRY( tape_text_malformed_and_substitution, "Tape text substitutes malformed UTF-8 and unsupported characters" ),
   TEST_ENTRY( tape_text_metadata_and_binary_roundtrips, "Tape metadata roundtrips without modifying custom binary data" ),
   TEST_ENTRY( tape_text_encodings, "Tape text uses UTF-8 across lossy and repeated format conversions" ),
+  TEST_ENTRY( pzx_write_dropped_metadata, "PZX drops message, hardware and custom metadata without changing waveforms or offsets" ),
   TEST_ENTRY( pzx_write_control_flow, "PZX jumps and finite loops preserve expected waveforms and caller state" ),
   TEST_ENTRY( pzx_write_control_flow_invalid, "PZX rejects malformed, cyclic and excessive control-flow expansion atomically" ),
   TEST_ENTRY( pzx_write_control_flow_visit_limit, "PZX control-flow visit limit accepts its boundary and rejects overflow" ),

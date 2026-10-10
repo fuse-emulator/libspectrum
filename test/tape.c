@@ -734,8 +734,7 @@ pzx_write_rejects_unsupported( void )
   size_t length = 0, i;
   test_return_t result = TEST_FAIL;
   static const libspectrum_tape_type types[] = {
-    LIBSPECTRUM_TAPE_BLOCK_SELECT, LIBSPECTRUM_TAPE_BLOCK_MESSAGE,
-    LIBSPECTRUM_TAPE_BLOCK_HARDWARE, LIBSPECTRUM_TAPE_BLOCK_CUSTOM
+    LIBSPECTRUM_TAPE_BLOCK_SELECT
   };
   for( i = 0; i < sizeof( types ) / sizeof( types[0] ); i++ ) {
     block = libspectrum_tape_block_alloc( types[i] );

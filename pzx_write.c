@@ -282,7 +282,11 @@ write_metadata( pzx_writer *writer, libspectrum_tape_block *block )
   case LIBSPECTRUM_TAPE_BLOCK_JUMP:
   case LIBSPECTRUM_TAPE_BLOCK_LOOP_START:
   case LIBSPECTRUM_TAPE_BLOCK_LOOP_END:
-  case LIBSPECTRUM_TAPE_BLOCK_GROUP_END: return LIBSPECTRUM_ERROR_NONE;
+  case LIBSPECTRUM_TAPE_BLOCK_GROUP_END:
+  /* PZX intentionally omits these TZX-only metadata blocks. */
+  case LIBSPECTRUM_TAPE_BLOCK_MESSAGE:
+  case LIBSPECTRUM_TAPE_BLOCK_HARDWARE:
+  case LIBSPECTRUM_TAPE_BLOCK_CUSTOM: return LIBSPECTRUM_ERROR_NONE;
   case LIBSPECTRUM_TAPE_BLOCK_PAUSE:
     pause = libspectrum_tape_block_pause_tstates( block );
     if( !pause ) return write_stop( writer, PZX_STOP_ALWAYS );

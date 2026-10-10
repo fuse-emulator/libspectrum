@@ -380,6 +380,7 @@ test_return_t tape_text_encodings( void );
 test_return_t tape_text_cp1252_mappings( void );
 test_return_t tape_text_malformed_and_substitution( void );
 test_return_t tape_text_metadata_and_binary_roundtrips( void );
+test_return_t pzx_write_dropped_metadata( void );
 test_return_t pzx_write_control_flow( void );
 test_return_t pzx_write_control_flow_invalid( void );
 test_return_t pzx_write_control_flow_native_data( void );

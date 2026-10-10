@@ -1181,6 +1181,10 @@ PZX output (LIBSPECTRUM_ID_TAPE_PZX) writes PZX version 1.0. It supports
 PULSE_SEQUENCE, DATA_BLOCK, PAUSE, STOP48, COMMENT (as BRWS), ARCHIVE_INFO
 (as PZXT) and CONCAT blocks, and converts ROM, TURBO, PURE_DATA, PURE_TONE,
 PULSES, RAW_DATA, RLE_PULSE, TZX_CSW and GENERALISED_DATA blocks.
+MESSAGE, HARDWARE and CUSTOM blocks are omitted, including message timing
+and all custom identifiers and payloads. They remain unchanged in the source
+tape but cannot be recovered from the PZX output. Omitted blocks still count
+in source jump offsets.
 SET_SIGNAL_LEVEL affects subsequent conversion without emitting a chunk.
 Paired, non-nested groups become BRWS points at their starts; ends are omitted.
 Conversion preserves existing pulse polarity and total duration. The existing
