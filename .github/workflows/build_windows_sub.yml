@@ -86,17 +86,25 @@ jobs:
           ref: ${{ env.LIBSPECTRUM_BRANCH }}
           path: ${{ env.LIBSPECTRUM_PATH }}
 
+      - name: (2b) Resolve Cygwin package cache path
+        id: cygwin-cache-path
+        shell: pwsh
+        run: |
+          # Match cygwin-install-action's default drive selection.
+          $volume = if (Test-Path -LiteralPath 'D:\') { 'D:' } else { 'C:' }
+          "path=$volume\cygwin-packages" >> $env:GITHUB_OUTPUT
+
       - name: (3) Restore Cygwin packages
         id: cygwin-cache-load
         uses: actions/cache/restore@v6
         with:
-          path: |
-            C:\cygwin-packages
+          path: ${{ steps.cygwin-cache-path.outputs.path }}
           key: cygwin-packages-libspectrum-${{ hashFiles('.github/workflows/build_windows_sub.yml') }}
           restore-keys: |
             cygwin-packages-libspectrum-
 
       - name: (4) Install Cygwin (32 bit) with libs
+        id: cygwin-install
         uses: cygwin/cygwin-install-action@v6
         with:
           platform: x86
@@ -130,8 +138,7 @@ jobs:
         if: steps.cygwin-cache-load.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
-          path: |
-            C:\cygwin-packages
+          path: ${{ steps.cygwin-install.outputs.package-cache }}
           key: cygwin-packages-libspectrum-${{ hashFiles('.github/workflows/build_windows_sub.yml') }}
 
       - name: (6) Autogen.sh
