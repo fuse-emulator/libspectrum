@@ -208,8 +208,9 @@ jobs:
         run: |
           cd ${GITHUB_WORKSPACE}
           
-          echo "Building and running tests .."
-          make check
+          echo "Building and running tests with live progress .."
+          make test/test.exe
+          test/test.exe
 
       - name: (13) Verbose check tests (on failure)
         if: failure() && steps.run-tests.outcome != 'success'
