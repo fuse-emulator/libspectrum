@@ -382,10 +382,12 @@ pzx_write_csw_initial_levels( void )
     if( initial != 2 && libspectrum_tape_get_next_edge( &edge, tape ) ) goto done;
     for( i = 0; i < count; i++ ) {
       if( libspectrum_tape_get_next_edge( &edge, tape ) ||
-          edge.tstates != 101 + i || (int)edge.level != ( level ^ ( i & 1 ) ) ||
+          edge.tstates != 101 + i ||
+          (int)edge.level != ( level ^ (int)( i & 1 ) ) ||
           ( !i && edge.transition != LIBSPECTRUM_TAPE_TRANSITION_NONE ) ) goto done;
       if( libspectrum_tape_get_next_edge( &edge, dest ) ||
-          edge.tstates != 101 + i || (int)edge.level != ( level ^ ( i & 1 ) ) )
+          edge.tstates != 101 + i ||
+          (int)edge.level != ( level ^ (int)( i & 1 ) ) )
         goto done;
     }
     /* A zero pause adds no sample; a nonzero pause still finishes low. */
