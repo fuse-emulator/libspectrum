@@ -217,8 +217,25 @@ jobs:
           
           echo "Building and running tests with live progress .."
           make test/test.exe
-          echo "Test build finished; launching test/test.exe .."
-          test/test.exe
+          echo "Test build finished; inspecting launcher and executables .."
+          ls -l test/test.exe test/.libs/
+          file test/test.exe test/.libs/*.exe
+
+          # Bypass the Libtool launcher, retaining the source working directory
+          # so that relative test fixture paths continue to work.
+          if test -f test/.libs/lt-test.exe; then
+            test_executable=test/.libs/lt-test.exe
+          elif test -f test/.libs/test.exe; then
+            test_executable=test/.libs/test.exe
+          else
+            echo "No underlying test executable found in test/.libs/" >&2
+            exit 1
+          fi
+          echo "DLL imports for $test_executable .."
+          i686-w64-mingw32-objdump -p "$test_executable" | grep 'DLL Name:'
+          export PATH="$PWD/.libs:$PWD:/usr/local/i686-w64-mingw32/bin:${CYGWIN_LIBDIR}:$PATH"
+          echo "Launching $test_executable directly .."
+          "$test_executable"
 
       - name: (13) Verbose check tests (on failure)
         if: failure() && steps.run-tests.outcome != 'success'
