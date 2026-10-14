@@ -50,15 +50,9 @@ main( int argc, char *argv[] )
   int pass = 0, fail = 0, incomplete = 0;
 
   progname = argv[0];
-  printf( "Test runner started; checking libspectrum version...\n" );
-  fflush( stdout );
 
   if( libspectrum_check_version( LIBSPECTRUM_MIN_VERSION ) ) {
-    printf( "Initialising libspectrum...\n" );
-    fflush( stdout );
     if( libspectrum_init() ) return 2;
-    printf( "Libspectrum initialisation complete.\n" );
-    fflush( stdout );
   } else {
     fprintf( stderr, "%s: libspectrum version %s found, but %s required",
 	     progname, libspectrum_version(), LIBSPECTRUM_MIN_VERSION );
