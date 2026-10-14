@@ -372,7 +372,8 @@ libspectrum_identify_file_with_class(
   const char *filename, const unsigned char *buffer, size_t length )
 {
   libspectrum_error error;
-  char *new_filename = NULL; unsigned char *new_buffer; size_t new_length;
+  char *new_filename = NULL; unsigned char *new_buffer = NULL;
+  size_t new_length;
 
   error = libspectrum_identify_file_raw( type, filename, buffer, length );
   if( error ) return error;
@@ -680,10 +681,12 @@ libspectrum_identify_class( libspectrum_class_t *libspectrum_class,
 }
 
 libspectrum_error
-libspectrum_uncompress_file( unsigned char **new_buffer, size_t *new_length,
+libspectrum_uncompress_file( unsigned char **new_buffer GCC_UNUSED,
+                             size_t *new_length,
 			     char **new_filename, libspectrum_id_t type,
-			     const unsigned char *old_buffer,
-			     size_t old_length, const char *old_filename )
+			     const unsigned char *old_buffer GCC_UNUSED,
+			     size_t old_length GCC_UNUSED,
+                             const char *old_filename )
 {
   libspectrum_class_t class;
   libspectrum_error error;

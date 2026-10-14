@@ -622,7 +622,7 @@ tzx_read_generalised_data( libspectrum_tape *tape,
   }
 
   /* Check this much data exists */
-  if( end - (*ptr) < length ) {
+  if( (size_t)( end - *ptr ) < length ) {
     libspectrum_print_error( LIBSPECTRUM_ERROR_CORRUPT,
 			     "%s: not enough data in buffer", __func__ );
     return LIBSPECTRUM_ERROR_CORRUPT;

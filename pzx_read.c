@@ -81,8 +81,8 @@ read_pzxt_block( libspectrum_tape *tape, const libspectrum_byte **buffer,
 
   if( data_length < 2 ) {
     libspectrum_print_error( LIBSPECTRUM_ERROR_CORRUPT,
-                             "read_pzxt_block: length %zu too short",
-                             data_length );
+                             "read_pzxt_block: length %lu too short",
+                             (unsigned long)data_length );
     return LIBSPECTRUM_ERROR_CORRUPT;
   }
 
@@ -486,7 +486,7 @@ read_block( libspectrum_tape *tape, const libspectrum_byte **buffer,
   error = read_block_header( id, &data_length, buffer, end );
   if( error ) return error;
 
-  if( end - *buffer < data_length ) {
+  if( (size_t)( end - *buffer ) < data_length ) {
     libspectrum_print_error(
       LIBSPECTRUM_ERROR_CORRUPT,
       "read_block: block length goes beyond end of file"
