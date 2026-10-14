@@ -219,7 +219,10 @@ jobs:
           make test/test.exe
           echo "Test build finished; inspecting launcher and executables .."
           ls -l test/test.exe test/.libs/
-          file test/test.exe test/.libs/*.exe
+          file test/test.exe
+          for executable in test/.libs/*.exe; do
+            if test -f "$executable"; then file "$executable"; fi
+          done
 
           # Bypass the Libtool launcher, retaining the source working directory
           # so that relative test fixture paths continue to work.
@@ -228,8 +231,9 @@ jobs:
           elif test -f test/.libs/test.exe; then
             test_executable=test/.libs/test.exe
           else
-            echo "No underlying test executable found in test/.libs/" >&2
-            exit 1
+            # Static test builds produce the real executable here, without
+            # a Libtool launcher or an executable in test/.libs/.
+            test_executable=test/test.exe
           fi
           echo "DLL imports for $test_executable .."
           i686-w64-mingw32-objdump -p "$test_executable" | grep 'DLL Name:'
