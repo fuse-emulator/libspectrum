@@ -241,15 +241,7 @@ jobs:
           echo "Launching $test_executable directly .."
           "$test_executable"
 
-      - name: (13) Verbose check tests (on failure)
-        if: failure() && steps.run-tests.outcome != 'success'
-        run: |
-          cd ${GITHUB_WORKSPACE}
-          
-          echo "Listing all tests individually .."
-          test/test.exe
-
-      - name: (14) Pack installed library files
+      - name: (13) Pack installed library files
         # Need to pack files to maintain permissions
         run: |
           cd ${GITHUB_WORKSPACE}
@@ -258,13 +250,13 @@ jobs:
           libspectrum-installed-windows.tar \
           -C /usr/local/i686-w64-mingw32/ .
 
-      - name: (15) Upload generated tar file
+      - name: (14) Upload generated tar file
         uses: actions/upload-artifact@v7
         with: 
           name: libspectrum-installed-windows-${{ inputs.key }}
           path: |
             libspectrum-installed-windows.tar
 
-      - name: (16) Finish
+      - name: (15) Finish
         run: |
           echo "🍏 Finishing with status ${{ job.status }}."

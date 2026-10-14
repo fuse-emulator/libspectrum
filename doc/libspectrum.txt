@@ -1646,7 +1646,9 @@ Readers and writers convert between UTF-8 and the format's character set:
 
 On export, unsupported characters are transliterated where iconv supports
 it, otherwise replaced with `?'. Invalid character sequences are also
-replaced with `?'. Transliteration may vary by platform. Metadata line
+replaced with `?'. Undefined CP1252 bytes are handled by the platform's
+converter when available; their conversion and transliteration may vary
+by platform. Metadata line
 endings are LF in the API and CR in TZX files. Writing leaves caller text
 unchanged; format length limits apply to the converted bytes.
 

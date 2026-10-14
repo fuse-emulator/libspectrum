@@ -57,12 +57,19 @@ tape_text_cp1252_mappings( void )
       else { expected[0] = 0xc0 | ( i >> 6 ); expected[1] = 0x80 | ( i & 63 ); expected[2] = 0; }
       value = expected;
     }
-    if( internal_tape_text_convert( source, 1, &utf8 ) || strcmp( utf8, value ) ||
-        internal_tape_text_convert( utf8, 0, &encoded ) ||
-        (unsigned char)encoded[0] != ( undefined ? '?' : i ) || encoded[1] )
-      goto done;
+    if( internal_tape_text_convert( source, 1, &utf8 ) ) goto done;
+    if( undefined ) {
+      /* Native converters may preserve controls or substitute undefined
+         bytes. Require valid UTF-8, not a particular replacement. */
+      if( internal_tape_text_convert( utf8, 2, &encoded ) ||
+          strcmp( utf8, encoded ) ) goto done;
+    } else {
+      if( strcmp( utf8, value ) ||
+          internal_tape_text_convert( utf8, 0, &encoded ) ||
+          (unsigned char)encoded[0] != i || encoded[1] ) goto done;
+    }
     all[i - 1] = i;
-    memcpy( end, value, strlen( value ) ); end += strlen( value );
+    memcpy( end, utf8, strlen( utf8 ) ); end += strlen( utf8 );
     libspectrum_free( utf8 ); utf8 = NULL;
     libspectrum_free( encoded ); encoded = NULL;
   }

@@ -23,7 +23,7 @@
 #endif
 #include "internals.h"
 
-/* Also used when iconv is unavailable. Undefined CP1252 bytes become '?'. */
+/* Fallback when iconv is unavailable. Undefined CP1252 bytes become '?'. */
 static const unsigned int cp1252_controls[32] = {
   0x20ac, '?', 0x201a, 0x192, 0x201e, 0x2026, 0x2020, 0x2021,
   0x2c6, 0x2030, 0x160, 0x2039, 0x152, '?', 0x17d, '?',
