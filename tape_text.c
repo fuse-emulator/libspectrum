@@ -89,8 +89,17 @@ internal_tape_text_convert( const char *text, int mode, char **result )
   if( ( mode == 0 || mode == 3 ) && converter == (iconv_t)-1 )
     converter = iconv_open( mode == 3 ? "ASCII" : "CP1252", "UTF-8" );
   if( converter != (iconv_t)-1 ) {
-    ICONV_CONST char *input = (ICONV_CONST char *)p;
-    size_t left = strlen( (const char *)p );
+    char *sanitised = NULL;
+    ICONV_CONST char *input;
+    size_t left;
+    /* Validate scalars ourselves: some iconv implementations accept UTF-8
+       values above U+10FFFF and replace an entire sequence at once. */
+    if( mode == 0 || mode == 3 ) {
+      internal_tape_text_convert( (const char *)p, 2, &sanitised );
+      p = (const unsigned char *)sanitised;
+    }
+    input = (ICONV_CONST char *)p;
+    left = strlen( (const char *)p );
     while( left ) {
       char chunk[128], *output = chunk;
       size_t available = sizeof( chunk ), status;
@@ -109,6 +118,7 @@ internal_tape_text_convert( const char *text, int mode, char **result )
       libspectrum_buffer_write_byte( out, '?' );
     }
     iconv_close( converter ); /* UTF-8 and CP1252 have no shift state. */
+    libspectrum_free( sanitised );
     p = (const unsigned char *)"";
   }
 #endif
