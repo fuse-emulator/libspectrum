@@ -260,6 +260,12 @@ internal_tzx_write( libspectrum_buffer* buffer, libspectrum_tape *tape )
         csw.type = LIBSPECTRUM_TAPE_BLOCK_TZX_CSW;
         csw.types.tzx_csw.rle = block->types.rle_pulse;
         csw.types.tzx_csw.compression = 1;
+        if( block->types.rle_pulse.has_initial_level ) {
+          libspectrum_tape_block level = { 0 };
+          level.type = LIBSPECTRUM_TAPE_BLOCK_SET_SIGNAL_LEVEL;
+          level.types.set_signal_level.level = block->types.rle_pulse.initial_level;
+          tzx_write_set_signal_level( &level, buffer );
+        }
         error = tzx_write_csw( &csw, buffer );
       } else {
         error = tzx_write_rle( block, buffer, tape, iterator );
@@ -824,7 +830,8 @@ tzx_write_rle( libspectrum_tape_block *block, libspectrum_buffer *buffer,
   libspectrum_set_pause_ms( raw_block, 0 );
 
   rle_state.bits_used = 0;
-  rle_state.level = 0;
+  rle_state.level = block->types.rle_pulse.has_initial_level ?
+    block->types.rle_pulse.initial_level : 0;
   rle_state.length = 0;
   rle_state.tape_length = 8192;
   rle_state.tape_buffer = libspectrum_new( libspectrum_byte, rle_state.tape_length );

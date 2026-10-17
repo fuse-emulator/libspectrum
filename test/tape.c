@@ -1686,9 +1686,9 @@ csw_to_tzx_csw_with_polarity( void )
         csw_length < 35 || ( csw_output[34] & 1 ) != i ||
         libspectrum_tape_write( &output, &length, source,
                                 LIBSPECTRUM_ID_TAPE_TZX ) ) goto done;
-    offset = i ? 16 : 10;
+    offset = 16;
     if( length != offset + 17 ||
-        ( i && ( output[10] != 0x2b || output[15] != 1 ) ) ||
+        output[10] != 0x2b || output[15] != i ||
         output[offset] != 0x18 || output[offset + 1] != 12 ||
         output[offset + 7] != 0x44 || output[offset + 8] != 0xac ||
         output[offset + 10] != 1 || output[offset + 11] != 2 ||
@@ -1696,12 +1696,12 @@ csw_to_tzx_csw_with_polarity( void )
         libspectrum_tape_read( roundtrip, output, length,
                                LIBSPECTRUM_ID_TAPE_TZX, NULL ) ) goto done;
     block = libspectrum_tape_iterator_init( &iterator, roundtrip );
-    if( i ) block = libspectrum_tape_iterator_next( &iterator );
+    block = libspectrum_tape_iterator_next( &iterator );
     if( !block || libspectrum_tape_block_type( block ) !=
         LIBSPECTRUM_TAPE_BLOCK_TZX_CSW ||
         libspectrum_tape_block_sample_rate( block ) != 44100 ) goto done;
-    /* Ignore the zero-length set-level event if high. */
-    if( i && libspectrum_tape_get_next_edge( &edge, roundtrip ) ) goto done;
+    /* Explicit low must be preserved too when following a high block. */
+    if( libspectrum_tape_get_next_edge( &edge, roundtrip ) ) goto done;
     if( libspectrum_tape_get_next_edge( &edge, roundtrip ) ) goto done;
     /* The conversion plays the first pulse at the CSW file's own polarity */
     if( edge.level != ( i ? LIBSPECTRUM_TAPE_SIGNAL_HIGH :
@@ -1895,7 +1895,7 @@ read_mono_wav_threshold_fixture( void )
   return TEST_SKIPPED;
 #else
   return check_wav_block( DYNAMIC_TEST_PATH( "wav-mono-threshold.wav" ),
-                          3500000 / 22050, 0xa9 );
+                          22050, 0xa9, 1 );
 #endif
 }
 
@@ -1906,7 +1906,18 @@ read_stereo_wav_mixdown_fixture( void )
   return TEST_SKIPPED;
 #else
   return check_wav_block( DYNAMIC_TEST_PATH( "wav-stereo-mixdown.wav" ),
-                          3500000 / 22050, 0x8d );
+                          22050, 0x8d, 1 );
+#endif
+}
+
+test_return_t
+read_wav_exact_sample_timing( void )
+{
+#ifndef HAVE_WAV_BACKEND
+  return TEST_SKIPPED;
+#else
+  return check_wav_block( DYNAMIC_TEST_PATH( "wav-exact-timing.wav" ),
+                          48000, 0x69, 301 );
 #endif
 }
 

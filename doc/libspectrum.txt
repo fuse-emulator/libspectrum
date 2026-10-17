@@ -1164,8 +1164,8 @@ is `LIBSPECTRUM_ID_UNKNOWN', guess the file format via
 `libspectrum_identify_file'; `filename' is generally used only to help
 with the identification process and can be set to NULL (or anything
 else) if `type' is not `LIBSPECTRUM_ID_UNKNOWN' unless the tape is a
-WAV file where the underlying audiofile library will reread the
-file and will not use the buffer. Tape images compressed with
+WAV file, where the selected audio backend reads the file by filename
+rather than using the buffer. Tape images compressed with
 bzip2 or gzip will be automatically and transparently decompressed.
 
 libspectrum_error
@@ -1520,14 +1520,27 @@ of one byte per pulse, or a zero byte followed by a little-endian dword
 for a long pulse. The claimed pulse count is available for inspection;
 TZX output writes a count derived from the stored pulse data.
 
-RLE_PULSE remains the generic block for scale-only recordings and for
-standalone CSW files. Loading a standalone CSW retains its exact sample
-rate on that block. Saving it as TZX emits a TZX_CSW block rather than a
-Direct Recording block; a scale-only RLE_PULSE still converts to Direct
-Recording. The standalone CSW initial-polarity flag is represented by a
-Set Signal Level block at the start of the tape when the flag is high.
-Exact-rate RLE playback starts at the incoming level, without an initial
-toggle; scale-only RLE blocks retain their legacy pulse behaviour.
+RLE_PULSE is the generic block for scale-only recordings, standalone CSW
+files and WAV audio. Loading CSW or WAV produces one RLE_PULSE block with
+an exact sample rate and explicit initial level. CSW retains its header
+polarity; WAV uses the level of its first decoded sample (positive is
+high, zero or negative is low). WAV sample runs are encoded as RLE
+counts, including the final run.
+Exact-rate playback carries fractional T-states between runs, so elapsed
+time is floor(total samples * 3500000 / sample_rate).
+
+For RLE_PULSE, the level accessor specifies the initial run level:
+-1 preserves the existing playback convention, 0 forces low and 1 forces
+high. New blocks default to -1. An explicit level overrides the incoming
+level without inserting a pulse or consuming time. Without an explicit
+level, exact-rate RLE playback starts at the incoming level without an
+initial toggle; scale-only blocks retain their legacy pulse behaviour.
+
+Saving exact-rate RLE_PULSE as TZX emits a TZX_CSW block rather than a
+Direct Recording block, preceded by Set Signal Level when the recording
+has an explicit initial level. A scale-only RLE_PULSE still converts to
+Direct Recording. Native TZX RAW_DATA blocks retain their integer
+T-states-per-sample timing and original direct-recording representation.
 TZX CSW has no polarity field: its first pulse inherits the current tape
 level. A zero pause adds no edge or level change of its own (the final
 pulse's boundary edge is still played); a nonzero pause ends low.
@@ -1790,6 +1803,7 @@ int values[]				HARDWARE
 
 int level				DATA_BLOCK
 					PAUSE
+					RLE_PULSE
 					SET_SIGNAL_LEVEL
 
 libspectrum_byte bit0_pulse_count	DATA_BLOCK

@@ -584,12 +584,17 @@ libspectrum_tape_get_next_edge_internal( libspectrum_dword *tstates,
       break;
 
     case LIBSPECTRUM_TAPE_BLOCK_RLE_PULSE:
-      /* Exact-rate recordings inherit their initial polarity. Scale-only
-         pulse lists keep the legacy toggle-before-pulse convention. */
-      if( block->types.rle_pulse.sample_rate &&
-          it->block_state.rle_pulse.index == 0 )
-        *flags |= it->signal_level ? LIBSPECTRUM_TAPE_FLAGS_LEVEL_HIGH :
-                                     LIBSPECTRUM_TAPE_FLAGS_LEVEL_LOW;
+      /* An explicit level belongs to the first run, not to an extra edge.
+         Otherwise preserve inherited exact-rate and legacy scaled behaviour. */
+      if( it->block_state.rle_pulse.index == 0 ) {
+        libspectrum_tape_rle_pulse_block *rle = &block->types.rle_pulse;
+        if( rle->has_initial_level || rle->sample_rate ) {
+          int level = rle->has_initial_level ? rle->initial_level :
+                                              it->signal_level;
+          *flags |= level ? LIBSPECTRUM_TAPE_FLAGS_LEVEL_HIGH :
+                            LIBSPECTRUM_TAPE_FLAGS_LEVEL_LOW;
+        }
+      }
       error = rle_pulse_edge( &(block->types.rle_pulse),
                               &(it->block_state.rle_pulse), tstates, &end_of_block);
       if( error ) return error;
