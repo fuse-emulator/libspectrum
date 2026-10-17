@@ -251,6 +251,7 @@ test_return_t snap_last_instruction_ei_and_set_f_getter_setter( void );
 test_return_t snap_out_plus3_memoryport_and_scld_hsr_dec_getter_setter( void );
 test_return_t snap_custom_rom_flag_and_custom_rom_pages_getter_setter( void );
 test_return_t snap_ram_pages_getter_setter( void );
+test_return_t snap_ram_page_63_and_slt_47_distinct_slots( void );
 test_return_t snap_interface1_active_paged_and_drive_count_getter_setter( void );
 test_return_t snap_divide_active_eprom_writeprotect_paged_and_control_getter_setter( void );
 test_return_t snap_specdrum_active_flag_and_signed_dac_getter_setter( void );

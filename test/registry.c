@@ -180,6 +180,7 @@ test_description tests[] = {
   TEST_ENTRY( snap_ula_128k_memory_port_and_ay_register_port_getter_setter, "Snap ULA, 128K memory port, and AY register port getter/setter" ),
   TEST_ENTRY( snap_custom_rom_flag_and_custom_rom_pages_getter_setter, "Snap custom_rom flag and custom_rom_pages getter/setter" ),
   TEST_ENTRY( snap_ram_pages_getter_setter, "Snap RAM pages getter/setter" ),
+  TEST_ENTRY( snap_ram_page_63_and_slt_47_distinct_slots, "Snap RAM page 63 and slt[47] occupy distinct slots" ),
   TEST_ENTRY( snap_interface1_active_paged_and_drive_count_getter_setter, "Snap interface1 active, paged, and drive_count getter/setter" ),
   TEST_ENTRY( snap_divide_active_eprom_writeprotect_paged_and_control_getter_setter, "Snap DivIDE active, eprom_writeprotect, paged, and control getter/setter" ),
   TEST_ENTRY( snap_specdrum_active_flag_and_signed_dac_getter_setter, "Snap SpecDrum active flag and signed DAC getter/setter" ),
