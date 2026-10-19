@@ -72,12 +72,10 @@ libspectrum_la_SOURCES = bzip2.c \
 			 z80em.c \
 			 zxs.c
 
-if WAV_SUPPORT
 libspectrum_la_SOURCES += wav.c
-endif
 
-if WAV_INTERNAL_AUDIOFILE
-libspectrum_la_SOURCES += wav_audiofile.c
+if WAV_INTERNAL_PCM
+libspectrum_la_SOURCES += wav_pcm.c
 endif
 
 if WAV_INTERNAL_MACOS
@@ -150,7 +148,6 @@ EXTRA_DIST = accessor.pl \
 	     buffer_license.txt \
 	     dll.c \
 	     generate.pl.in \
-	     m4/audiofile.m4 \
 	     m4/ax_create_stdint_h.m4 \
 	     m4/pkg.m4 \
 	     make-perl.c \

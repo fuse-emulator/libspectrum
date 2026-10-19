@@ -257,40 +257,14 @@ if test "$ac_cv_c_compiler_gnu" = yes; then
   fi
 fi
 
-dnl Check whether to use libaudiofile
-AC_MSG_CHECKING(whether to use libaudiofile)
-AC_ARG_WITH(libaudiofile,
-[  --without-libaudiofile  don't use libaudiofile],
-if test "$withval" = no; then libaudiofile=no; else libaudiofile=yes; fi,
-libaudiofile=yes)
-AC_MSG_RESULT($libaudiofile)
-
 AC_ARG_WITH(wav-backend,
-[  --with-wav-backend=auto|audiofile|macos|none  select WAV backend],
+[  --with-wav-backend=auto|pcm|macos  select WAV backend (auto uses pcm)],
 [wav_backend_requested="$withval"],
 [wav_backend_requested="auto"])
 
 AS_CASE([$wav_backend_requested],
-  [auto|audiofile|macos|none], [],
+  [auto|pcm|macos], [],
   [AC_MSG_FAILURE([invalid WAV backend '$wav_backend_requested'])])
-
-have_libaudiofile="no"
-AS_IF([test "$libaudiofile" = yes], [
-  PKG_CHECK_MODULES(
-    AUDIOFILE,
-    audiofile,
-    [AC_DEFINE([HAVE_LIB_AUDIOFILE], 1, [Defined if we've got audiofile])
-     have_libaudiofile="yes"],
-    [true]
-  )
-  if test -z "$AUDIOFILE_LIBS"; then
-    AM_PATH_AUDIOFILE(
-      0.2.3,
-      [AC_DEFINE([HAVE_LIB_AUDIOFILE], 1, [Defined if we've got audiofile])
-       have_libaudiofile="yes"],
-    )
-  fi
-])
 
 dnl Check for native macOS frameworks for WAV support
 MACOS_WAV_LIBS=
@@ -324,29 +298,9 @@ WAV_BACKEND_LIBADD=
 WAV_BACKEND_LDFLAGS=
 WAV_BACKEND_PRIVATE_LIBS=
 
-selected_wav_backend="none"
+selected_wav_backend="pcm"
 AS_CASE([$wav_backend_requested],
-  [auto], [
-    AS_CASE([$host_os],
-      [darwin*], [
-        if test "$have_macos_wav" = yes; then
-          selected_wav_backend="macos"
-        elif test "$have_libaudiofile" = yes; then
-          selected_wav_backend="audiofile"
-        fi
-      ], [
-        if test "$have_libaudiofile" = yes; then
-          selected_wav_backend="audiofile"
-        fi
-      ])
-  ],
-  [audiofile], [
-    if test "$have_libaudiofile" = yes; then
-      selected_wav_backend="audiofile"
-    else
-      AC_MSG_FAILURE([libaudiofile WAV backend requested but unavailable])
-    fi
-  ],
+  [auto|pcm], [selected_wav_backend="pcm"],
   [macos], [
     if test "$have_macos_wav" = yes; then
       selected_wav_backend="macos"
@@ -355,24 +309,16 @@ AS_CASE([$wav_backend_requested],
     fi
   ])
 
-have_wav_backend="no"
 AS_CASE([$selected_wav_backend],
-  [audiofile], [
-    AC_DEFINE([HAVE_WAV_BACKEND], 1, [Defined if a WAV backend is available])
-    AC_DEFINE([WAV_INTERNAL_AUDIOFILE], 1,
-              [Defined if the libaudiofile WAV internals are selected])
-    WAV_BACKEND_CPPFLAGS="$AUDIOFILE_CFLAGS"
-    WAV_BACKEND_LIBADD="$AUDIOFILE_LIBS"
-    WAV_BACKEND_PRIVATE_LIBS="$AUDIOFILE_LIBS"
-    have_wav_backend="yes"
+  [pcm], [
+    AC_DEFINE([WAV_INTERNAL_PCM], 1,
+              [Defined if the portable PCM WAV internals are selected])
   ],
   [macos], [
-    AC_DEFINE([HAVE_WAV_BACKEND], 1, [Defined if a WAV backend is available])
     AC_DEFINE([WAV_INTERNAL_MACOS], 1,
               [Defined if the macOS WAV internals are selected])
     WAV_BACKEND_LDFLAGS="$MACOS_WAV_LIBS"
     WAV_BACKEND_PRIVATE_LIBS="$MACOS_WAV_LIBS"
-    have_wav_backend="yes"
   ])
 
 AC_SUBST(WAV_BACKEND_CPPFLAGS)
@@ -380,9 +326,8 @@ AC_SUBST(WAV_BACKEND_LIBADD)
 AC_SUBST(WAV_BACKEND_LDFLAGS)
 AC_SUBST(WAV_BACKEND_PRIVATE_LIBS)
 
-AM_CONDITIONAL([WAV_SUPPORT], [test "$have_wav_backend" = yes])
-AM_CONDITIONAL([WAV_INTERNAL_AUDIOFILE],
-               [test "$selected_wav_backend" = audiofile])
+AM_CONDITIONAL([WAV_INTERNAL_PCM],
+               [test "$selected_wav_backend" = pcm])
 AM_CONDITIONAL([WAV_INTERNAL_MACOS],
                [test "$selected_wav_backend" = macos])
 
@@ -406,7 +351,6 @@ echo ""
 echo "zlib support: $have_zlib"
 echo "bzip2 support: $have_bzip2"
 echo "libgcrypt support: $have_libgcrypt"
-echo "libaudiofile support: $have_libaudiofile"
 echo "native macOS WAV support: $have_macos_wav"
 echo "selected WAV backend: $selected_wav_backend"
 echo "Internal GLib replacement: $myglib"

@@ -161,7 +161,6 @@ play_tape( const char *filename )
   return TEST_PASS;
 }
 
-#ifdef HAVE_WAV_BACKEND
 static int
 check_wav_exports( libspectrum_tape *source, const size_t *runs,
                     const libspectrum_tape_signal_level *levels,
@@ -334,4 +333,3 @@ check_wav_block( const char *filename, libspectrum_dword sample_rate,
 
   return TEST_PASS;
 }
-#endif

@@ -51,7 +51,8 @@ test_test_SOURCES = \
 	test/tap-pzx.c \
 	test/timings.c \
 	test/utilities.c \
-	test/identify.c
+	test/identify.c \
+	test/wav.c
 
 # The test program links the static archive to exercise private helpers.
 # On Windows, avoid dllimport declarations for the archive's public symbols.

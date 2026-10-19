@@ -70,6 +70,8 @@ typedef enum test_return_t {
   TEST_SKIPPED,
 } test_return_t;
 
+test_return_t read_portable_wav_formats( void );
+
 typedef struct test_edge_sequence_t {
 
   libspectrum_dword length;

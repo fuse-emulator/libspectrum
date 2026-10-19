@@ -1891,34 +1891,22 @@ tape_peek_next_block( void )
 test_return_t
 read_mono_wav_threshold_fixture( void )
 {
-#ifndef HAVE_WAV_BACKEND
-  return TEST_SKIPPED;
-#else
   return check_wav_block( DYNAMIC_TEST_PATH( "wav-mono-threshold.wav" ),
                           22050, 0xa9, 1 );
-#endif
 }
 
 test_return_t
 read_stereo_wav_mixdown_fixture( void )
 {
-#ifndef WAV_INTERNAL_MACOS
-  return TEST_SKIPPED;
-#else
   return check_wav_block( DYNAMIC_TEST_PATH( "wav-stereo-mixdown.wav" ),
                           22050, 0x8d, 1 );
-#endif
 }
 
 test_return_t
 read_wav_exact_sample_timing( void )
 {
-#ifndef HAVE_WAV_BACKEND
-  return TEST_SKIPPED;
-#else
   return check_wav_block( DYNAMIC_TEST_PATH( "wav-exact-timing.wav" ),
                           48000, 0x69, 301 );
-#endif
 }
 
 /* Test that PZX archive info tags (title + author) are correctly parsed.
