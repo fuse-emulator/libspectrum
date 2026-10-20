@@ -207,11 +207,18 @@ wav_prepare_data( FILE *file, const struct wav_info *info )
 {
   if( info->data_size % info->align )
     return wav_error( LIBSPECTRUM_ERROR_CORRUPT, "data contains a partial frame" );
-  if( (uint64_t)( info->data_size / info->align ) >
-        SIZE_MAX / sizeof( libspectrum_signed_word ) ||
-      (uint64_t)info->rate > SIZE_MAX )
+  /* RIFF sizes are 32-bit; these limits only constrain smaller hosts. */
+#if SIZE_MAX <= UINT32_MAX
+  if( info->data_size / info->align >
+        SIZE_MAX / sizeof( libspectrum_signed_word ) )
     return wav_error( LIBSPECTRUM_ERROR_INVALID,
-                      "frame count or sample rate exceeds host limits" );
+                      "frame count exceeds host limits" );
+#endif
+#if SIZE_MAX < UINT32_MAX
+  if( info->rate > SIZE_MAX )
+    return wav_error( LIBSPECTRUM_ERROR_INVALID,
+                      "sample rate exceeds host limits" );
+#endif
   if( fseek( file, info->data_offset, SEEK_SET ) )
     return wav_error( LIBSPECTRUM_ERROR_LOGIC, "cannot seek to audio data" );
   return LIBSPECTRUM_ERROR_NONE;
@@ -223,7 +230,7 @@ internal_wav_open( libspectrum_wav_reader **reader, const char *filename,
 {
   FILE *file;
   uint64_t end;
-  struct wav_info info;
+  struct wav_info info = { 0 };
   libspectrum_wav_reader *state;
   libspectrum_error error;
 

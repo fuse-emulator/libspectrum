@@ -581,7 +581,7 @@ libspectrum_tape_get_next_edge_internal( libspectrum_dword *tstates,
         libspectrum_tape_rle_pulse_block *rle = &block->types.rle_pulse;
         if( rle->has_initial_level || rle->sample_rate ) {
           int level = rle->has_initial_level ? rle->initial_level :
-                                              it->signal_level;
+                                              (int)it->signal_level;
           *flags |= level ? LIBSPECTRUM_TAPE_FLAGS_LEVEL_HIGH :
                             LIBSPECTRUM_TAPE_FLAGS_LEVEL_LOW;
         }
