@@ -120,6 +120,14 @@ read_portable_wav_formats( void )
         size = fixture( p, bytes, channels, ext );
         if( !try_fixture( p, size, LIBSPECTRUM_ERROR_NONE, 0, bytes ) )
           return TEST_FAIL;
+        /* Redundant byte rate may be zero or incorrectly expressed in bits. */
+        for( mutation = 0; mutation < 2; mutation++ ) {
+          f = 30 + 3 * bytes * channels + ( ( 3 * bytes * channels ) & 1 );
+          put32( p + f + 16,
+                 mutation ? 12345 * channels * bytes * 8 : 0 );
+          if( !try_fixture( p, size, LIBSPECTRUM_ERROR_NONE, 0, bytes ) )
+            return TEST_FAIL;
+        }
       }
 
   /* Equal positive/negative channels cancel, including at full scale. */
@@ -165,7 +173,8 @@ read_portable_wav_formats( void )
       put16( p + f + 26, 12 ); expected_error = LIBSPECTRUM_ERROR_UNKNOWN; break;
     case 11: /* Non-PCM extensible subformat. */
       p[f + 32] = 3; expected_error = LIBSPECTRUM_ERROR_UNKNOWN; break;
-    case 12: put32( p + f + 16, 1 ); break;
+    case 12: /* Incorrect byte rate does not affect PCM decoding. */
+      put32( p + f + 16, 1 ); expected_error = LIBSPECTRUM_ERROR_NONE; break;
     case 13: memcpy( p + 22, "JUNK", 4 ); break; /* Missing data. */
     case 14: memcpy( p + f, "JUNK", 4 ); break; /* Missing fmt. */
     case 15: put32( p + f + 4, 15 ); break;

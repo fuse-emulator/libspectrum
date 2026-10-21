@@ -120,7 +120,6 @@ wav_read_format( FILE *file, libspectrum_dword size, struct wav_info *info )
 {
   libspectrum_byte h[WAV_EXTENSIBLE_FORMAT_SIZE];
   const libspectrum_byte *ptr = h;
-  libspectrum_dword byte_rate;
   size_t count = size < sizeof( h ) ? size : sizeof( h );
   unsigned bits, format;
   libspectrum_error error;
@@ -130,7 +129,8 @@ wav_read_format( FILE *file, libspectrum_dword size, struct wav_info *info )
   format = libspectrum_read_word( &ptr );
   info->channels = libspectrum_read_word( &ptr );
   info->rate = libspectrum_read_dword( &ptr );
-  byte_rate = libspectrum_read_dword( &ptr );
+  /* Byte rate is redundant; some writers incorrectly store bits per second. */
+  ptr += sizeof( libspectrum_dword );
   info->align = libspectrum_read_word( &ptr );
   bits = libspectrum_read_word( &ptr );
   if( format == WAV_FORMAT_EXTENSIBLE ) {
@@ -143,10 +143,9 @@ wav_read_format( FILE *file, libspectrum_dword size, struct wav_info *info )
     return wav_error( LIBSPECTRUM_ERROR_UNKNOWN, "unsupported PCM bit depth" );
   info->bytes = bits / 8;
   if( !info->channels || !info->rate ||
-      info->align != info->channels * info->bytes ||
-      (uint64_t)info->rate * info->align != byte_rate )
+      info->align != info->channels * info->bytes )
     return wav_error( LIBSPECTRUM_ERROR_CORRUPT,
-                      "invalid channels, sample rate, block alignment or byte rate" );
+                      "invalid channels, sample rate or block alignment" );
   return LIBSPECTRUM_ERROR_NONE;
 }
 
