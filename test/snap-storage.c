@@ -5,6 +5,60 @@
 #include "test.h"
 
 test_return_t
+snap_jlo_information_loss( void )
+{
+  static const libspectrum_id_t formats[] = {
+    LIBSPECTRUM_ID_SNAPSHOT_SNA, LIBSPECTRUM_ID_SNAPSHOT_DSNAP,
+    LIBSPECTRUM_ID_SNAPSHOT_SZX, LIBSPECTRUM_ID_SNAPSHOT_Z80,
+  };
+  static const int pages[] = { 5, 2, 0 };
+  libspectrum_snap *snap = libspectrum_snap_alloc();
+  libspectrum_byte *buffer = NULL;
+  size_t length, i;
+  int enabled, flags;
+  test_return_t r = TEST_FAIL;
+
+  if( !snap ) return TEST_INCOMPLETE;
+  if( libspectrum_snap_jlo_active( snap ) ) goto done;
+
+  /* Use a machine supported by every writer, so machine conversion does
+     not itself cause major information loss. */
+  libspectrum_snap_set_machine( snap, LIBSPECTRUM_MACHINE_48 );
+  libspectrum_snap_set_sp( snap, 0x8000 );
+  libspectrum_snap_set_pc( snap, 0x8000 );
+  for( i = 0; i < sizeof( pages ) / sizeof( pages[0] ); i++ )
+    libspectrum_snap_set_pages( snap, pages[i],
+                               libspectrum_new0( libspectrum_byte, 0x4000 ) );
+
+  for( i = 0; i < sizeof( formats ) / sizeof( formats[0] ); i++ ) {
+    /* Check absent, present, and cleared state on the same snapshot. */
+    for( enabled = 0; enabled < 3; enabled++ ) {
+      int active = enabled == 1;
+      libspectrum_snap_set_jlo_active( snap, active );
+      if( libspectrum_snap_jlo_active( snap ) != active ) goto done;
+      length = 0;
+      if( libspectrum_snap_write( &buffer, &length, &flags, snap,
+                                  formats[i], NULL, 0 ) ) goto done;
+      libspectrum_free( buffer );
+      buffer = NULL;
+      if( !!( flags & LIBSPECTRUM_FLAG_SNAPSHOT_MAJOR_INFO_LOSS ) != active ) {
+        fprintf( stderr, "%s: JLO loss flag missing or spurious: "
+                 "format %d, active %d, flags %d\n", progname,
+                 formats[i], active, flags );
+        goto done;
+      }
+    }
+  }
+
+  r = TEST_PASS;
+
+done:
+  libspectrum_free( buffer );
+  libspectrum_snap_free( snap );
+  return r;
+}
+
+test_return_t
 snap_divide_active_eprom_writeprotect_paged_and_control_getter_setter( void )
 {
   /* libspectrum_snap: DivIDE interface flags getter/setter */

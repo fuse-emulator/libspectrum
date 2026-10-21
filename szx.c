@@ -2787,6 +2787,10 @@ libspectrum_szx_write( libspectrum_buffer *buffer, int *out_flags,
   if( libspectrum_snap_ttx2000s_active( snap ) )
     *out_flags |= LIBSPECTRUM_FLAG_SNAPSHOT_MAJOR_INFO_LOSS;
 
+  /* We don't save the JLO Disk System state at all */
+  if( libspectrum_snap_jlo_active( snap ) )
+    *out_flags |= LIBSPECTRUM_FLAG_SNAPSHOT_MAJOR_INFO_LOSS;
+
   capabilities =
     libspectrum_machine_capabilities( libspectrum_snap_machine( snap ) );
 

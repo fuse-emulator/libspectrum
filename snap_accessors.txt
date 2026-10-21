@@ -276,6 +276,9 @@ libspectrum_byte* didaktik80_rom 1
 size_t didaktik80_rom_length 1
 libspectrum_byte* didaktik80_ram 1
 
+/* JLO Disk System status (state is not serialised) */
+int jlo_active
+
 /* Covox status */
 int covox_active
 libspectrum_byte covox_dac

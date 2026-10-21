@@ -222,6 +222,7 @@ test_description tests[] = {
   TEST_ENTRY( snap_multiface_ram_pointer_and_multiface_ram_length_getter_setter, "Snap multiface_ram pointer and multiface_ram_length getter/setter" ),
   TEST_ENTRY( snap_zxmmc_active_getter_setter, "Snap zxmmc_active getter/setter" ),
   TEST_ENTRY( snap_ttx2000s_active_getter_setter, "Snap ttx2000s_active getter/setter" ),
+  TEST_ENTRY( snap_jlo_information_loss, "Snap JLO presence reports major loss in every writer" ),
   TEST_ENTRY( tape_turbo_block_pilot_length_sync1_length_sync2_length_getter_setter, "Tape TURBO block pilot_length, sync1_length, sync2_length getter/setter" ),
   TEST_ENTRY( tape_turbo_block_bit0_length_bit1_length_pilot_pulses_pause_getter_setter, "Tape TURBO block bit0_length, bit1_length, pilot_pulses, pause getter/setter" ),
   TEST_ENTRY( tape_pure_tone_block_pulse_length_and_count_getter_setter, "Tape PURE_TONE block pulse_length and count getter/setter" ),

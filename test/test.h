@@ -294,6 +294,7 @@ test_return_t snap_multiface_red_button_disabled_getter_setter( void );
 test_return_t snap_multiface_ram_pointer_and_multiface_ram_length_getter_setter( void );
 test_return_t snap_zxmmc_active_getter_setter( void );
 test_return_t snap_ttx2000s_active_getter_setter( void );
+test_return_t snap_jlo_information_loss( void );
 test_return_t snap_kempston_mouse_active_getter_setter( void );
 test_return_t snap_interface1_custom_rom_rom_pointer_and_rom_length_getter_setter( void );
 test_return_t snap_melodik_active_getter_setter( void );
