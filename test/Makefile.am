@@ -32,6 +32,7 @@ test_test_SOURCES = \
 	test/file.c \
 	test/main.c \
 	test/microdrive.c \
+	test/mmc.c \
 	test/registry.c \
 	test/rzx.c \
 	test/snap-memory.c \
