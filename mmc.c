@@ -318,10 +318,7 @@ static void
 set_response_buffer_r7( libspectrum_mmc_card *card, libspectrum_dword value )
 {
   card->response_buffer[ 0 ] = card->r1_status;
-  card->response_buffer[ 1 ] = ( value & 0xff000000 ) >> 24;
-  card->response_buffer[ 2 ] = ( value & 0x00ff0000 ) >> 16;
-  card->response_buffer[ 3 ] = ( value & 0x0000ff00 ) >>  8;
-  card->response_buffer[ 4 ] = ( value & 0x000000ff );
+  libspectrum_write_dword_be( &card->response_buffer[ 1 ], value );
   card->response_buffer_next = card->response_buffer;
   card->response_buffer_end = card->response_buffer + 5;
 }
@@ -329,10 +326,7 @@ set_response_buffer_r7( libspectrum_mmc_card *card, libspectrum_dword value )
 static void
 set_data_address( libspectrum_mmc_card *card, libspectrum_dword sector_number )
 {
-  card->current_argument[ 3 ] = ( sector_number & 0x000000ff );
-  card->current_argument[ 2 ] = ( sector_number & 0x0000ff00 ) >> 8;
-  card->current_argument[ 1 ] = ( sector_number & 0x00ff0000 ) >> 16;
-  card->current_argument[ 0 ] = ( sector_number & 0xff000000 ) >> 24;
+  libspectrum_write_dword_be( card->current_argument, sector_number );
 }
 
 static void

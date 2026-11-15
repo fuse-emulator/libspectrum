@@ -134,6 +134,17 @@ libspectrum_read_dword_be( const libspectrum_byte *buffer )
           (libspectrum_dword)buffer[3];
 }
 
+/* Encode four bytes big-endian without advancing the pointer. The caller must
+   ensure that all four bytes are available. */
+static inline void
+libspectrum_write_dword_be( libspectrum_byte *buffer, libspectrum_dword d )
+{
+  buffer[0] = ( d & 0xff000000 ) >> 24;
+  buffer[1] = ( d & 0x00ff0000 ) >> 16;
+  buffer[2] = ( d & 0x0000ff00 ) >>  8;
+  buffer[3] = ( d & 0x000000ff );
+}
+
 /* Read and write (d)words */
 libspectrum_word libspectrum_read_word( const libspectrum_byte **buffer );
 libspectrum_dword libspectrum_read_dword( const libspectrum_byte **buffer );
