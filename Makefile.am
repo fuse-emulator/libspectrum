@@ -33,6 +33,7 @@ libspectrum_la_SOURCES = bzip2.c \
 			 csw_write.c \
 			 dck.c \
 			 file.c \
+			 filesystem.c \
 			 ide.c \
 			 libspectrum.c \
                          memory.c \
@@ -95,7 +96,7 @@ endif
 ##   compatible.
 libspectrum_la_LDFLAGS = -version-info 22:0:1 -no-undefined @WINDRES_LDFLAGS@ @WAV_BACKEND_LDFLAGS@
 
-libspectrum_la_LIBADD = @WAV_BACKEND_LIBADD@ @GLIB_LIBS@ @ICONV_LIBS@ -lm
+libspectrum_la_LIBADD = @WAV_BACKEND_LIBADD@ @FILESYSTEM_LIBADD@ @GLIB_LIBS@ @ICONV_LIBS@ -lm
 
 libspectrum_la_DEPENDENCIES = @WINDRES_OBJ@
 

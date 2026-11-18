@@ -30,6 +30,7 @@ LIBSPECTRUM_AUTOGEN_WARNING
 extern "C" {
 #endif				/* #ifdef __cplusplus */
 
+#include <stdint.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -105,6 +106,95 @@ typedef enum libspectrum_error {
   LIBSPECTRUM_ERROR_LOGIC = -1,
 
 } libspectrum_error;
+
+/* Synchronous regular-file I/O, independent of libspectrum_init/end.
+   Select a custom implementation before the first operation (even a failed
+   one); otherwise native I/O is selected. Selection is permanent. Serialize
+   setup and use on the owner thread. See the regular-file filesystem section
+   in doc/libspectrum.txt for the full contract. */
+
+#define LIBSPECTRUM_SUPPORTS_FILESYSTEM 1
+
+typedef struct libspectrum_fs_handle libspectrum_fs_handle;
+
+typedef enum libspectrum_fs_mode {
+  LIBSPECTRUM_FS_READ,       /* existing */
+  LIBSPECTRUM_FS_WRITE,      /* create/truncate */
+  LIBSPECTRUM_FS_READ_WRITE, /* existing, rb+ */
+  LIBSPECTRUM_FS_APPEND      /* create; every write appends */
+} libspectrum_fs_mode;
+
+typedef enum libspectrum_fs_origin {
+  LIBSPECTRUM_FS_START, LIBSPECTRUM_FS_CURRENT, LIBSPECTRUM_FS_END
+} libspectrum_fs_origin;
+
+/* Backend functions return LIBSPECTRUM_ERROR_NONE on success; errno is
+   diagnostic only. userdata must remain valid for all filesystem use; names
+   and buffers are borrowed for the call. Only exists, unlink and writable are
+   optional. Missing operations fail explicitly; there is no native fallback. */
+typedef struct libspectrum_fs_backend {
+  /* Return a non-NULL private handle on success. The library closes any
+     non-NULL handle returned on failure. */
+  libspectrum_error (*open)(void *userdata, const char *name,
+                           libspectrum_fs_mode mode, void **handle);
+
+  /* Read/write report the actual byte count (at most requested), even on
+     error. For a nonzero request, success with zero bytes means EOF or stalled
+     output. Partial progress does not turn an error into success. */
+  libspectrum_error (*read)(void *userdata, void *handle, void *buffer,
+                           size_t requested, size_t *transferred);
+
+  libspectrum_error (*write)(void *userdata, void *handle, const void *buffer,
+                            size_t requested, size_t *transferred);
+
+  /* Byte length without moving the stream; -1 on failure. */
+  libspectrum_error (*length)(void *userdata, void *handle, int64_t *length);
+
+  /* Byte offset relative to origin. Reject invalid or unsupported positions. */
+  libspectrum_error (*seek)(void *userdata, void *handle, int64_t offset,
+                           libspectrum_fs_origin origin);
+
+  /* Current byte position; -1 on failure. */
+  libspectrum_error (*tell)(void *userdata, void *handle, int64_t *position);
+
+  /* Flush buffered output and report errors; no durability guarantee. */
+  libspectrum_error (*flush)(void *userdata, void *handle);
+
+  /* Consume the private handle even on error. Close is never retried. */
+  libspectrum_error (*close)(void *userdata, void *handle);
+
+  /* A missing name is successful false, not an error. */
+  libspectrum_error (*exists)(void *userdata, const char *name, int *exists);
+
+  libspectrum_error (*unlink)(void *userdata, const char *name);
+
+  /* Query permission without opening the file. Read-only is successful
+     false; a missing name is an error. */
+  libspectrum_error (*writable)(void *userdata, const char *name, int *writable);
+} libspectrum_fs_backend;
+
+/* Copy the backend table and select the implementation if the table is valid. */
+LIBSPECTRUM_API libspectrum_error libspectrum_fs_install(const libspectrum_fs_backend *, void *);
+
+/* Checked operations, safe to copy locally. Close consumes the handle even
+   on error. Exact transfers fail on error or zero progress. */
+typedef struct libspectrum_fs_operations {
+  libspectrum_error (*open)(const char *, libspectrum_fs_mode, libspectrum_fs_handle **);
+  libspectrum_error (*read)(libspectrum_fs_handle *, void *, size_t, size_t *);
+  libspectrum_error (*write)(libspectrum_fs_handle *, const void *, size_t, size_t *);
+  libspectrum_error (*read_exact)(libspectrum_fs_handle *, void *, size_t);
+  libspectrum_error (*write_exact)(libspectrum_fs_handle *, const void *, size_t);
+  libspectrum_error (*length)(libspectrum_fs_handle *, int64_t *);
+  libspectrum_error (*seek)(libspectrum_fs_handle *, int64_t, libspectrum_fs_origin);
+  libspectrum_error (*tell)(libspectrum_fs_handle *, int64_t *);
+  libspectrum_error (*flush)(libspectrum_fs_handle *);
+  libspectrum_error (*close)(libspectrum_fs_handle *);
+  libspectrum_error (*exists)(const char *, int *);
+  libspectrum_error (*unlink)(const char *);
+  libspectrum_error (*writable)(const char *, int *);
+} libspectrum_fs_operations;
+
+extern LIBSPECTRUM_API const libspectrum_fs_operations libspectrum_fs;
 
 /* Library capabilities */
 LIBSPECTRUM_CAPABILITIES

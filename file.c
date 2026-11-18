@@ -5,6 +5,15 @@
    it under the terms of the GNU General Public License as published by
    the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License along
+   with this program; if not, write to the Free Software Foundation, Inc.,
+   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
 #include "config.h"
@@ -135,8 +144,9 @@ libspectrum_file_free( libspectrum_file *file )
 libspectrum_error
 libspectrum_file_open( libspectrum_file *file, const char *filename )
 {
-  FILE *stream;
-  long file_length;
+  const libspectrum_fs_operations ls_fs = libspectrum_fs;
+  libspectrum_fs_handle *stream;
+  int64_t file_length;
   size_t header_length;
   libspectrum_byte header[ LIBSPECTRUM_FILE_IDENTIFY_LENGTH ];
   libspectrum_byte *buffer = NULL;
@@ -146,26 +156,25 @@ libspectrum_file_open( libspectrum_file *file, const char *filename )
 
   if( !file || !filename ) return LIBSPECTRUM_ERROR_INVALID;
 
-  stream = fopen( filename, "rb" );
-  if( !stream ) return LIBSPECTRUM_ERROR_UNKNOWN;
-  if( fseek( stream, 0, SEEK_END ) ||
-      ( file_length = ftell( stream ) ) < 0 ||
-      fseek( stream, 0, SEEK_SET ) ) {
-    fclose( stream );
+  error = ls_fs.open( filename, LIBSPECTRUM_FS_READ, &stream );
+  if( error ) return error;
+  if( ls_fs.length( stream, &file_length ) ||
+      (uint64_t)file_length > SIZE_MAX ) {
+    ls_fs.close( stream );
     return LIBSPECTRUM_ERROR_UNKNOWN;
   }
 
   header_length = (size_t)file_length < sizeof( header ) ?
                   (size_t)file_length : sizeof( header );
-  if( header_length && fread( header, 1, header_length, stream ) != header_length ) {
-    fclose( stream );
+  if( header_length && ls_fs.read_exact( stream, header, header_length ) ) {
+    ls_fs.close( stream );
     return LIBSPECTRUM_ERROR_UNKNOWN;
   }
 
   error = libspectrum_identify_file_raw( &type, NULL, header, header_length );
   if( !error ) error = libspectrum_identify_class( &class, type );
   if( error ) {
-    fclose( stream );
+    ls_fs.close( stream );
     return error;
   }
   if( class == LIBSPECTRUM_CLASS_HARDDISK ) {
@@ -173,13 +182,13 @@ libspectrum_file_open( libspectrum_file *file, const char *filename )
     memset( &replacement, 0, sizeof( replacement ) );
     replacement.filename = libspectrum_safe_strdup( filename );
     if( !replacement.filename ) {
-      fclose( stream );
+      ls_fs.close( stream );
       return LIBSPECTRUM_ERROR_MEMORY;
     }
     replacement.type = type;
     replacement.file_class = class;
     replacement.storage = LIBSPECTRUM_FILE_STORAGE_PATH;
-    if( fclose( stream ) ) {
+    if( ls_fs.close( stream ) ) {
       libspectrum_file_clear( &replacement );
       return LIBSPECTRUM_ERROR_UNKNOWN;
     }
@@ -188,23 +197,23 @@ libspectrum_file_open( libspectrum_file *file, const char *filename )
     return LIBSPECTRUM_ERROR_NONE;
   }
 
-  if( fseek( stream, 0, SEEK_SET ) ) {
-    fclose( stream );
+  if( ls_fs.seek( stream, 0, LIBSPECTRUM_FS_START ) ) {
+    ls_fs.close( stream );
     return LIBSPECTRUM_ERROR_UNKNOWN;
   }
   if( file_length ) {
     buffer = libspectrum_new( libspectrum_byte, (size_t)file_length );
     if( !buffer ) {
-      fclose( stream );
+      ls_fs.close( stream );
       return LIBSPECTRUM_ERROR_MEMORY;
     }
-    if( fread( buffer, 1, (size_t)file_length, stream ) != (size_t)file_length ) {
+    if( ls_fs.read_exact( stream, buffer, (size_t)file_length ) ) {
       libspectrum_free( buffer );
-      fclose( stream );
+      ls_fs.close( stream );
       return LIBSPECTRUM_ERROR_UNKNOWN;
     }
   }
-  if( fclose( stream ) ) {
+  if( ls_fs.close( stream ) ) {
     libspectrum_free( buffer );
     return LIBSPECTRUM_ERROR_UNKNOWN;
   }

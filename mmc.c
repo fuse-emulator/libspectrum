@@ -176,6 +176,7 @@ libspectrum_mmc_insert( libspectrum_mmc_card *card, const char *filename )
   if( card->drive.sector_size != 512 || card->total_sectors % 1024 ) {
       libspectrum_print_error( LIBSPECTRUM_ERROR_UNKNOWN,
         "Image size not supported" );
+    libspectrum_mmc_eject( card );
     return LIBSPECTRUM_ERROR_UNKNOWN;
   }
 
@@ -188,6 +189,7 @@ libspectrum_mmc_insert( libspectrum_mmc_card *card, const char *filename )
   if( c_size >= 65375 ) {
     libspectrum_print_error( LIBSPECTRUM_ERROR_UNKNOWN,
       "Image size too big (>32 Gb)" );
+    libspectrum_mmc_eject( card );
     return LIBSPECTRUM_ERROR_UNKNOWN;
   }
 

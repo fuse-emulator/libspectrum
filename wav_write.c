@@ -29,7 +29,7 @@
 enum { WAV_NUM_CHANNELS = 1 };
 
 struct libspectrum_wav_writer {
-  FILE *file;
+  libspectrum_fs_handle *file;
   char *filename;
   size_t remaining;
   unsigned bytes, padding;
@@ -49,26 +49,26 @@ wav_output_error( const char *filename, const char *operation )
   return LIBSPECTRUM_ERROR_UNKNOWN;
 }
 
-/* Account for partial writes before retrying an interrupted operation.
-   Other failures poison the writer; callers must close, not retry. */
+/* Errors poison the writer, including errors after partial progress.
+   NULL filenames intentionally use stdout, outside the logical namespace. */
 static libspectrum_error
 wav_write_all( libspectrum_wav_writer *writer, const void *buffer,
                size_t length, const char *operation )
 {
+  const libspectrum_fs_operations ls_fs = libspectrum_fs;
   const libspectrum_byte *ptr = buffer;
+
+  if( writer->owned )
+    return ls_fs.write_exact( writer->file, buffer, length );
 
   while( length ) {
     size_t written;
 
     errno = 0;
-    written = fwrite( ptr, 1, length, writer->file );
+    written = fwrite( ptr, 1, length, stdout );
     ptr += written;
     length -= written;
-    if( ferror( writer->file ) ) {
-      if( errno == EINTR ) {
-        clearerr( writer->file );
-        continue;
-      }
+    if( ferror( stdout ) ) {
       return wav_output_error( writer->filename, operation );
     }
     if( !written ) return wav_output_error( writer->filename, operation );
@@ -93,7 +93,9 @@ libspectrum_wav_writer_open( libspectrum_wav_writer **writer,
                              libspectrum_wav_sample_format format,
                              size_t frames )
 {
+  const libspectrum_fs_operations ls_fs = libspectrum_fs;
   libspectrum_wav_writer *state;
+  libspectrum_error error;
   libspectrum_byte header[WAV_HEADER_SIZE], *ptr = header;
   unsigned bytes;
   libspectrum_dword size;
@@ -114,12 +116,13 @@ libspectrum_wav_writer_open( libspectrum_wav_writer **writer,
   state = libspectrum_new0( libspectrum_wav_writer, 1 );
   state->owned = filename != NULL;
   state->filename = libspectrum_safe_strdup( filename ? filename : "stdout" );
-  state->file = filename ? fopen( filename, "wb" ) : stdout;
-  if( !state->file ) {
-    wav_output_error( state->filename, "cannot open output" );
+  error = filename ? ls_fs.open( filename, LIBSPECTRUM_FS_WRITE, &state->file ) :
+                     LIBSPECTRUM_ERROR_NONE;
+  if( error ) {
+    libspectrum_print_error( error, "WAV: %s: cannot open output", state->filename );
     libspectrum_free( state->filename );
     libspectrum_free( state );
-    return LIBSPECTRUM_ERROR_UNKNOWN;
+    return error;
   }
 #ifdef _WIN32
   state->old_mode = -1;
@@ -160,8 +163,9 @@ libspectrum_wav_writer_open( libspectrum_wav_writer **writer,
   state->error = wav_write_all( state, header, sizeof( header ),
                                 "cannot write header" );
   if( state->error ) {
+    error = state->error;
     libspectrum_wav_writer_close( state );
-    return LIBSPECTRUM_ERROR_UNKNOWN;
+    return error;
   }
   *writer = state;
   return LIBSPECTRUM_ERROR_NONE;
@@ -202,6 +206,7 @@ libspectrum_wav_writer_write( libspectrum_wav_writer *writer,
 libspectrum_error
 libspectrum_wav_writer_close( libspectrum_wav_writer *writer )
 {
+  const libspectrum_fs_operations ls_fs = libspectrum_fs;
   libspectrum_error error;
 
   if( !writer ) return LIBSPECTRUM_ERROR_NONE;
@@ -217,16 +222,20 @@ libspectrum_wav_writer_close( libspectrum_wav_writer *writer )
 
     error = wav_write_all( writer, &padding, 1, "cannot write padding" );
   }
-  /* Flush separately: fclose releases the stream even on EINTR and cannot
-     safely be retried. Still close owned streams after a failed flush. */
+  /* Both native and custom close consume even on failure. Flush separately
+     and still close owned streams after a failed flush. */
   {
     libspectrum_error flush_error =
-      wav_flush_output( writer->file, writer->filename );
+      writer->owned ? ls_fs.flush( writer->file ) :
+                      wav_flush_output( stdout, writer->filename );
     if( flush_error ) error = flush_error;
   }
   if( writer->owned ) {
-    if( fclose( writer->file ) )
-      error = wav_output_error( writer->filename, "cannot close output" );
+    libspectrum_error close_error = ls_fs.close( writer->file );
+    if( close_error ) {
+      error = close_error;
+      libspectrum_print_error( error, "WAV: %s: cannot close output", writer->filename );
+    }
   } else {
 #ifdef _WIN32
     if( writer->old_mode != -1 &&

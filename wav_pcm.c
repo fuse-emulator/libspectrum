@@ -25,7 +25,7 @@
 #include "wav_internals.h"
 
 struct libspectrum_wav_reader {
-  FILE *file;
+  libspectrum_fs_handle *file;
   size_t remaining;
   unsigned channels, bytes;
 };
@@ -34,7 +34,7 @@ struct libspectrum_wav_reader {
 struct wav_info {
   libspectrum_dword rate, data_size;
   unsigned channels, bytes, align;
-  long data_offset;
+  int64_t data_offset;
 };
 
 static libspectrum_error
@@ -45,18 +45,19 @@ wav_error( libspectrum_error error, const char *message )
 }
 
 static libspectrum_error
-wav_riff_end( FILE *file, uint64_t *end )
+wav_riff_end( libspectrum_fs_handle *file, uint64_t *end )
 {
   libspectrum_byte h[WAV_RIFF_HEADER_SIZE];
-  long file_size;
+  const libspectrum_fs_operations ls_fs = libspectrum_fs;
+  int64_t file_size;
 
-  if( fseek( file, 0, SEEK_END ) || ( file_size = ftell( file ) ) < 0 ||
-      fseek( file, 0, SEEK_SET ) ) {
+  if( ls_fs.length( file, &file_size ) ||
+      ls_fs.seek( file, 0, LIBSPECTRUM_FS_START ) ) {
     libspectrum_print_error( LIBSPECTRUM_ERROR_LOGIC,
-                            "WAV: failed to seek file: %s", strerror( errno ) );
+                            "WAV: failed to query or seek file" );
     return LIBSPECTRUM_ERROR_LOGIC;
   }
-  if( fread( h, 1, sizeof( h ), file ) != sizeof( h ) )
+  if( ls_fs.read_exact( file, h, sizeof( h ) ) )
     return wav_error( LIBSPECTRUM_ERROR_CORRUPT, "truncated RIFF header" );
   if( memcmp( h, WAV_SIGNATURE_RIFF, WAV_CHUNK_ID_SIZE ) ||
       memcmp( h + WAV_CHUNK_HEADER_SIZE, WAV_SIGNATURE_WAVE,
@@ -100,7 +101,7 @@ wav_extensible_pcm( const libspectrum_byte *format_data, libspectrum_dword size,
 }
 
 static libspectrum_error
-wav_read_format( FILE *file, libspectrum_dword size, struct wav_info *info )
+wav_read_format( libspectrum_fs_handle *file, libspectrum_dword size, struct wav_info *info )
 {
   libspectrum_byte h[WAV_EXTENSIBLE_FORMAT_SIZE];
   const libspectrum_byte *ptr = h;
@@ -108,7 +109,7 @@ wav_read_format( FILE *file, libspectrum_dword size, struct wav_info *info )
   unsigned bits, format;
   libspectrum_error error;
 
-  if( size < WAV_PCM_FORMAT_SIZE || fread( h, 1, count, file ) != count )
+  if( size < WAV_PCM_FORMAT_SIZE || libspectrum_fs.read_exact( file, h, count ) )
     return wav_error( LIBSPECTRUM_ERROR_CORRUPT, "short or truncated fmt chunk" );
   format = libspectrum_read_word( &ptr );
   info->channels = libspectrum_read_word( &ptr );
@@ -134,15 +135,16 @@ wav_read_format( FILE *file, libspectrum_dword size, struct wav_info *info )
 }
 
 static libspectrum_error
-wav_read_chunk_header( FILE *file, uint64_t pos, uint64_t end,
+wav_read_chunk_header( libspectrum_fs_handle *file, uint64_t pos, uint64_t end,
                        libspectrum_byte *header, libspectrum_dword *size,
                        uint64_t *next )
 {
+  const libspectrum_fs_operations ls_fs = libspectrum_fs;
   if( end - pos < WAV_CHUNK_HEADER_SIZE )
     return wav_error( LIBSPECTRUM_ERROR_CORRUPT, "truncated chunk header" );
-  if( pos > LONG_MAX || fseek( file, (long)pos, SEEK_SET ) )
+  if( pos > INT64_MAX || ls_fs.seek( file, (int64_t)pos, LIBSPECTRUM_FS_START ) )
     return wav_error( LIBSPECTRUM_ERROR_LOGIC, "cannot seek to chunk header" );
-  if( fread( header, 1, WAV_CHUNK_HEADER_SIZE, file ) != WAV_CHUNK_HEADER_SIZE )
+  if( ls_fs.read_exact( file, header, WAV_CHUNK_HEADER_SIZE ) )
     return wav_error( LIBSPECTRUM_ERROR_CORRUPT, "cannot read chunk header" );
   *size = libspectrum_read_dword_le( header + WAV_CHUNK_ID_SIZE );
   /* RIFF chunks are padded to an even byte boundary. */
@@ -154,7 +156,7 @@ wav_read_chunk_header( FILE *file, uint64_t pos, uint64_t end,
 }
 
 static libspectrum_error
-wav_scan_chunks( FILE *file, uint64_t end, struct wav_info *info )
+wav_scan_chunks( libspectrum_fs_handle *file, uint64_t end, struct wav_info *info )
 {
   libspectrum_byte h[WAV_CHUNK_HEADER_SIZE];
   libspectrum_dword size;
@@ -173,9 +175,9 @@ wav_scan_chunks( FILE *file, uint64_t end, struct wav_info *info )
     } else if( !memcmp( h, WAV_CHUNK_DATA, WAV_CHUNK_ID_SIZE ) ) {
       if( have_data )
         return wav_error( LIBSPECTRUM_ERROR_CORRUPT, "duplicate data chunk" );
-      if( pos + sizeof( h ) > LONG_MAX )
+      if( pos + sizeof( h ) > INT64_MAX )
         return wav_error( LIBSPECTRUM_ERROR_LOGIC, "data offset exceeds seek range" );
-      info->data_offset = (long)( pos + sizeof( h ) );
+      info->data_offset = (int64_t)( pos + sizeof( h ) );
       info->data_size = size;
       have_data = 1;
     }
@@ -186,7 +188,7 @@ wav_scan_chunks( FILE *file, uint64_t end, struct wav_info *info )
 }
 
 static libspectrum_error
-wav_prepare_data( FILE *file, const struct wav_info *info )
+wav_prepare_data( libspectrum_fs_handle *file, const struct wav_info *info )
 {
   if( info->data_size % info->align )
     return wav_error( LIBSPECTRUM_ERROR_CORRUPT, "data contains a partial frame" );
@@ -202,7 +204,7 @@ wav_prepare_data( FILE *file, const struct wav_info *info )
     return wav_error( LIBSPECTRUM_ERROR_INVALID,
                       "sample rate exceeds host limits" );
 #endif
-  if( fseek( file, info->data_offset, SEEK_SET ) )
+  if( libspectrum_fs.seek( file, info->data_offset, LIBSPECTRUM_FS_START ) )
     return wav_error( LIBSPECTRUM_ERROR_LOGIC, "cannot seek to audio data" );
   return LIBSPECTRUM_ERROR_NONE;
 }
@@ -211,7 +213,8 @@ libspectrum_error
 libspectrum_wav_reader_open( libspectrum_wav_reader **reader, const char *filename,
                    size_t *sample_rate, size_t *frame_count )
 {
-  FILE *file;
+  const libspectrum_fs_operations ls_fs = libspectrum_fs;
+  libspectrum_fs_handle *file;
   uint64_t end;
   struct wav_info info = { 0 };
   libspectrum_wav_reader *state;
@@ -221,17 +224,17 @@ libspectrum_wav_reader_open( libspectrum_wav_reader **reader, const char *filena
   *reader = NULL;
   if( !filename || !sample_rate || !frame_count )
     return LIBSPECTRUM_ERROR_INVALID;
-  file = fopen( filename, "rb" );
-  if( !file ) {
-    libspectrum_print_error( LIBSPECTRUM_ERROR_LOGIC, "WAV: %s: %s",
-                            filename, strerror( errno ) );
+  error = ls_fs.open( filename, LIBSPECTRUM_FS_READ, &file );
+  if( error ) {
+    libspectrum_print_error( LIBSPECTRUM_ERROR_LOGIC, "WAV: cannot open %s",
+                            filename );
     return LIBSPECTRUM_ERROR_LOGIC;
   }
   error = wav_riff_end( file, &end );
   if( !error ) error = wav_scan_chunks( file, end, &info );
   if( !error ) error = wav_prepare_data( file, &info );
   if( error ) {
-    fclose( file );
+    ls_fs.close( file );
     return error;
   }
   state = libspectrum_new( libspectrum_wav_reader, 1 );
@@ -280,7 +283,7 @@ wav_read_frame( libspectrum_wav_reader *reader,
   int64_t sum = 0;
 
   for( unsigned c = 0; c < reader->channels; c++ ) {
-    if( fread( raw, 1, reader->bytes, reader->file ) != reader->bytes )
+    if( libspectrum_fs.read_exact( reader->file, raw, reader->bytes ) )
       return wav_error( LIBSPECTRUM_ERROR_CORRUPT, "truncated audio frame" );
     sum += wav_decode_sample( raw, reader->bytes );
   }
@@ -313,7 +316,7 @@ libspectrum_wav_reader_close( libspectrum_wav_reader *reader )
 {
   int failed;
   if( !reader ) return LIBSPECTRUM_ERROR_NONE;
-  failed = fclose( reader->file );
+  failed = libspectrum_fs.close( reader->file );
   libspectrum_free( reader );
   return failed ? wav_error( LIBSPECTRUM_ERROR_UNKNOWN,
                              "failed to close input" ) : LIBSPECTRUM_ERROR_NONE;

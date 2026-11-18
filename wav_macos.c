@@ -28,6 +28,9 @@
 
 struct internal_wav_reader {
   ExtAudioFileRef file;
+  AudioFileID audio_file;
+  libspectrum_fs_handle *stream;
+  libspectrum_error io_error;
   UInt32 channels;
 };
 
@@ -54,13 +57,48 @@ wav_macos_mix_frame( const SInt16 *samples, UInt32 channels )
   return (libspectrum_signed_word)sum;
 }
 
+/* AudioToolbox decodes audio using byte IO from the shared filesystem. */
+static OSStatus
+wav_macos_read_bytes( void *ctx, SInt64 position, UInt32 requested,
+                      void *buffer, UInt32 *actual )
+{
+  internal_wav_reader *state = ctx;
+  const libspectrum_fs_operations ls_fs = libspectrum_fs;
+  size_t done = 0, count;
+  libspectrum_error error = state->io_error;
+
+  *actual = 0;
+  if( !error ) error = ls_fs.seek( state->stream, position, LIBSPECTRUM_FS_START );
+  while( !error && done < requested ) {
+    error = ls_fs.read( state->stream, (libspectrum_byte *)buffer + done,
+                        requested - done, &count );
+    done += count;
+    if( !count ) break;
+  }
+  *actual = (UInt32)done;
+  if( error ) {
+    state->io_error = error;
+    return kAudioFileUnspecifiedError;
+  }
+  return noErr;
+}
+
+static SInt64
+wav_macos_size( void *ctx )
+{
+  internal_wav_reader *state = ctx;
+  int64_t length;
+  libspectrum_error error = libspectrum_fs.length( state->stream, &length );
+  if( error ) { state->io_error = error; return -1; }
+  return length;
+}
+
 libspectrum_error
 internal_wav_open( internal_wav_reader **reader, const char *filename,
                    size_t *sample_rate, size_t *frame_count )
 {
   internal_wav_reader *state;
   AudioStreamBasicDescription file_format, client_format;
-  CFURLRef url;
   UInt32 size;
   SInt64 frames;
   OSStatus status;
@@ -68,21 +106,20 @@ internal_wav_open( internal_wav_reader **reader, const char *filename,
   *reader = NULL;
   state = libspectrum_new0( internal_wav_reader, 1 );
 
-  url = CFURLCreateFromFileSystemRepresentation(
-          NULL, (const UInt8*)filename, (CFIndex)strlen( filename ), false );
-  if( !url ) {
+  state->io_error = libspectrum_fs.open( filename, LIBSPECTRUM_FS_READ,
+                                         &state->stream );
+  if( state->io_error ) {
+    libspectrum_error error = state->io_error;
     libspectrum_free( state );
-    libspectrum_print_error(
-      LIBSPECTRUM_ERROR_LOGIC,
-      "internal_wav_open: failed to create file URL for:%s", filename
-    );
-    return LIBSPECTRUM_ERROR_LOGIC;
+    return error;
   }
-
-  status = ExtAudioFileOpenURL( url, &state->file );
-  CFRelease( url );
-  if( status ) {
-    libspectrum_free( state );
+  status = AudioFileOpenWithCallbacks( state, wav_macos_read_bytes, NULL,
+                                       wav_macos_size, NULL, 0,
+                                       &state->audio_file );
+  if( !status && !state->io_error )
+    status = ExtAudioFileWrapAudioFileID( state->audio_file, false, &state->file );
+  if( status || state->io_error ) {
+    internal_wav_close( state );
     return wav_macos_error( LIBSPECTRUM_ERROR_LOGIC,
                             "internal_wav_open: failed to open audio file",
                             status );
@@ -92,7 +129,7 @@ internal_wav_open( internal_wav_reader **reader, const char *filename,
   status = ExtAudioFileGetProperty( state->file,
                                     kExtAudioFileProperty_FileDataFormat,
                                     &size, &file_format );
-  if( status ) {
+  if( status || state->io_error ) {
     internal_wav_close( state );
     return wav_macos_error(
       LIBSPECTRUM_ERROR_CORRUPT,
@@ -104,7 +141,7 @@ internal_wav_open( internal_wav_reader **reader, const char *filename,
   status = ExtAudioFileGetProperty( state->file,
                                     kExtAudioFileProperty_FileLengthFrames,
                                     &size, &frames );
-  if( status ) {
+  if( status || state->io_error ) {
     internal_wav_close( state );
     return wav_macos_error(
       LIBSPECTRUM_ERROR_CORRUPT,
@@ -140,7 +177,7 @@ internal_wav_open( internal_wav_reader **reader, const char *filename,
   status = ExtAudioFileSetProperty( state->file,
                                     kExtAudioFileProperty_ClientDataFormat,
                                     size, &client_format );
-  if( status ) {
+  if( status || state->io_error ) {
     internal_wav_close( state );
     return wav_macos_error(
       LIBSPECTRUM_ERROR_CORRUPT,
@@ -177,7 +214,7 @@ internal_wav_read( internal_wav_reader *reader,
 
   count = frames;
   status = ExtAudioFileRead( reader->file, &count, &audio );
-  if( status ) {
+  if( status || reader->io_error ) {
     libspectrum_free( raw );
     return wav_macos_error( LIBSPECTRUM_ERROR_CORRUPT,
                             "internal_wav_read: failed to read audio frames",
@@ -206,5 +243,10 @@ internal_wav_close( internal_wav_reader *reader )
                                   status );
   }
 
+  if( reader->audio_file ) AudioFileClose( reader->audio_file );
+  if( reader->stream ) {
+    libspectrum_error error = libspectrum_fs.close( reader->stream );
+    if( error ) libspectrum_print_error( error, "internal_wav_close: filesystem close failed" );
+  }
   libspectrum_free( reader );
 }

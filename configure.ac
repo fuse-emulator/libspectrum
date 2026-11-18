@@ -69,6 +69,7 @@ AC_DEFINE([LIBSPECTRUM_COPYRIGHT], [libspectrum_copyright],
 
 dnl Checks for programs.
 AC_PROG_CC
+AC_SYS_LARGEFILE
 AC_MSG_CHECKING([whether $CC supports C11 or later])
 AC_COMPILE_IFELSE(
   [AC_LANG_SOURCE([[
@@ -101,8 +102,10 @@ AC_CHECK_HEADERS(stdint.h strings.h unistd.h)
 dnl Check for host specific programs
 WINDRES_OBJ=
 WINDRES_LDFLAGS=
+FILESYSTEM_LIBADD=
 case "$host_os" in
-  mingw32*)
+  mingw*)
+    FILESYSTEM_LIBADD="-ladvapi32"
     AC_CHECK_TOOL([WINDRES], [windres], [no])
     if test "$WINDRES" != no; then
       WINDRES_OBJ="windres.o"
@@ -113,12 +116,13 @@ case "$host_os" in
 esac
 AC_SUBST(WINDRES_OBJ)
 AC_SUBST(WINDRES_LDFLAGS)
+AC_SUBST(FILESYSTEM_LIBADD)
 
 dnl Check for big endianness
 AC_C_BIGENDIAN
 
 dnl Check for functions
-AC_CHECK_FUNCS(_snprintf _stricmp _strnicmp snprintf strcasecmp strncasecmp)
+AC_CHECK_FUNCS(_snprintf _stricmp _strnicmp snprintf strcasecmp strncasecmp fseeko ftello access)
 
 dnl Allow the user to say that various libraries are in one place
 AC_ARG_WITH(local-prefix,

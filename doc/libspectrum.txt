@@ -50,6 +50,125 @@ and non-zero in every build.
 LIBSPECTRUM_SUPPORTS_AUDIOFILE is a deprecated compatibility alias;
 use LIBSPECTRUM_SUPPORTS_WAV.
 
+Regular-file filesystem
+=======================
+
+libspectrum owns one process-wide synchronous regular-file namespace. It is
+usable before libspectrum_init and after libspectrum_end; neither function
+changes the filesystem selection or closes its handles. Native IO is the
+default. A platform can select a custom implementation once, before first
+filesystem use. Otherwise first use permanently selects native IO. Fuse and
+other clients use this same interface, not a separate backend registry.
+
+LIBSPECTRUM_SUPPORTS_FILESYSTEM is defined as 1 when this interface is present.
+The installed header exports the constant libspectrum_fs operations table.
+Its entries are checked library wrappers, not backend functions. Copy it
+locally for readable multi-operation code:
+
+  const libspectrum_fs_operations ls_fs = libspectrum_fs;
+  libspectrum_fs_handle *stream = NULL;
+  libspectrum_error error;
+  unsigned char header[16];
+
+  error = ls_fs.open(name, LIBSPECTRUM_FS_READ, &stream);
+  if(error) return error;
+  error = ls_fs.read_exact(stream, header, sizeof(header));
+  {
+    libspectrum_error close_error = ls_fs.close(stream);
+    if(!error) error = close_error;
+  }
+  return error;
+
+Every copied operations table uses the same permanently selected filesystem.
+Copying this table does not select an implementation or perform any IO.
+Handles are opaque library-owned objects, not FILEs, native descriptors or
+libspectrum_file encoded-data descriptors. Open initializes its output to NULL.
+Close must be called exactly once and consumes the handle even on failure.
+
+Open modes are LIBSPECTRUM_FS_READ (existing), LIBSPECTRUM_FS_WRITE
+(create/truncate), LIBSPECTRUM_FS_READ_WRITE (existing, rb+ semantics), and
+LIBSPECTRUM_FS_APPEND (create, every write appends). There are no mode strings
+in the shared interface.
+
+read/write take a requested byte count and a transferred-count output. Counts
+are initialized to zero before the backend call and validated against the
+request, including on failure. A short successful transfer is progress, zero success
+is EOF or stalled output, and a nonzero error remains an error even after
+partial transfer. Never retry an error as if it were a short success.
+read_exact/write_exact loop only successful nonzero progress and fail on EOF,
+stall or any error. They do not report an exact operation as successful after
+an error. Successful zero-byte exact operations do not invoke the backend.
+
+length/tell use nonnegative signed 64-bit byte lengths/positions and set their
+output to -1 on failure. length preserves position (native stdio may flush
+buffered output while querying). seek takes a signed 64-bit offset and
+LIBSPECTRUM_FS_START, LIBSPECTRUM_FS_CURRENT or LIBSPECTRUM_FS_END. Start-relative
+negative positions and invalid origins are rejected. Backends must reject
+arithmetic overflow and positions they cannot represent, never truncate them.
+Native IO uses 64-bit Windows or off_t seeks where available; limited native
+platforms explicitly reject unsupported offsets. flush and close both report
+errors; flushing does not promise durable storage.
+
+exists and writable initialize their boolean output to false, including on
+failure. exists succeeds with false for a missing name. writable queries an
+existing logical file's permission without opening or truncating it; missing
+files are errors, and false is a valid permission result. unlink removes the
+logical name. These operations never probe a native name behind a custom
+backend. Backend failures are authoritative; errno is diagnostic only.
+
+Native Windows writable checks the read-only attribute and uses the file's
+owner/group/DACL security descriptor with AccessCheck for GENERIC_WRITE. It
+uses the thread impersonation identity if present, otherwise the process
+identity. Attribute, security-descriptor and token-query failures are errors,
+not assumed permission grants. This requires Advapi32 (also included in the
+pkg-config static link dependencies). Narrow paths use the native fopen
+convention. No write-open or truncation is used for the query.
+Permission queries are advisory, not promises that a later write will succeed:
+permissions can change, and sharing locks, storage failures, remote server
+policy and other restrictions can still prevent writes.
+
+Select with libspectrum_fs_install(&backend, userdata), once and before any
+filesystem operation. The backend table is copied, so it may be transient.
+Userdata is borrowed and must remain valid for all subsequent filesystem use,
+including shutdown and the last close. Backend functions receive userdata
+first; operations on an open file receive the private handle second. open
+returns that handle through void **; NULL denotes failed open. If a failed
+open supplies a non-NULL handle, the library closes it once. Backend functions
+return libspectrum_error (NONE is success) and must obey the transfer, query
+and consuming-close rules above. Names and buffers are
+borrowed only for the synchronous call; retained filenames remain logical
+names, owned by the retaining codec objects.
+
+All backend functions except exists/unlink/writable are required. Incomplete
+tables are rejected without consuming the selection opportunity. Missing optional
+operations fail with LIBSPECTRUM_ERROR_INVALID; missing writable never means
+writable. Contract violations also return LIBSPECTRUM_ERROR_INVALID. Other
+failures return a nonzero libspectrum_error; callers must not decide success
+using errno.
+
+Selection is permanent: a second successful selection is never allowed, even
+before opening a file or after every file has closed. Any filesystem operation,
+including a failed operation or namespace query, fixes the default if a custom
+implementation has not been selected. There is no reset or runtime replacement
+API, and failures never cause fallback to native IO. libspectrum_init/end do
+not select or change the implementation. Tests requiring different selections
+must run in separate processes.
+
+Configuration and all IO must be serialized by the owner thread. There is no
+concurrent-use guarantee. Do not recursively operate on or close the same handle
+from a backend function.
+
+Generic file loading, IDE/MMC backing and WAV filename IO use this namespace.
+WAV output with a NULL name intentionally writes native stdout, never passing
+stdout to backend functions. The WAV writer declares its frame count up front
+and writes its header once.
+IDE commit retains failed cache entries but returns success; eject ignores
+close errors and discards the cache. Commit does not guarantee durable storage.
+
+Directory browsing, environment/search paths, devices, asynchronous IO and
+media admission/save policy are not part of this interface. See
+test/filesystem.c for the non-stdio RAM backend and failure/lifetime tests.
+
 Raw PCM WAV I/O
 ===============
 
@@ -105,7 +224,8 @@ Both opens leave the output handle NULL on failure. All non-handle output
 pointers are required; sample buffers may be NULL only for zero-frame calls.
 All functions return LIBSPECTRUM_ERROR_NONE on success; unsupported encodings
 return UNKNOWN, malformed input CORRUPT, and invalid API arguments INVALID.
-Writer I/O failures return UNKNOWN; missing frames at close return INVALID.
+Native writer I/O failures return UNKNOWN; custom writer I/O can propagate
+backend errors. Missing frames at close return INVALID.
 Reader stream/seek failures return LOGIC or UNKNOWN. The usual libspectrum
 allocator policy applies. Metadata outputs from a failed open must not be used.
 
@@ -117,9 +237,11 @@ files or flushes stdout, and reports output/flush errors. Failed output is
 not removed. Close must be checked: successful writes can still fail during
 buffer flushing. Never use a handle after close.
 
-Existing WAV-to-tape loading still uses the configured backend. The optional
+WAV-to-tape loading uses the configured backend. The optional
 macOS backend uses Core Audio conversion, so its accepted encodings and
 quantization need not match the public reader. It is not used by this API.
+Both configured readers use the shared filesystem, including Core Audio's
+byte-read and size functions; neither reopens logical names through native IO.
 
 Compression helpers
 ===================

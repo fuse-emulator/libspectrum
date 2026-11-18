@@ -19,9 +19,10 @@
 ##
 ## E-mail: philip-fuse@shadowmagic.org.uk
 
-check_PROGRAMS = test/test
+check_PROGRAMS = test/test test/filesystem-test
 
-TESTS = $(check_PROGRAMS)
+TESTS = test/test test/filesystem.sh
+TESTS_ENVIRONMENT = FILESYSTEM_TEST='$(abs_builddir)/test/filesystem-test$(EXEEXT)'
 
 test_test_SOURCES = \
 	test/buffer.c \
@@ -99,8 +100,15 @@ endif
 
 test_test_LDFLAGS = -static
 
+test_filesystem_test_SOURCES = test/filesystem.c
+test_filesystem_test_CFLAGS = $(test_test_CFLAGS)
+test_filesystem_test_DEPENDENCIES = $(test_test_DEPENDENCIES)
+test_filesystem_test_LDADD = $(test_test_LDADD)
+test_filesystem_test_LDFLAGS = -static
+
 EXTRA_DIST += \
 	test/Makefile.am \
+	test/filesystem.sh \
 	test/complete-tzx.pl \
 	test/wav-fixtures.pl \
 	test/empty-drb.tzx \

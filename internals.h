@@ -354,7 +354,7 @@ typedef struct libspectrum_hdf_header {
 typedef struct libspectrum_ide_drive {
 
   /* HDF filepointer and information */
-  FILE *disk;
+  libspectrum_fs_handle *disk;
   libspectrum_word data_offset;
   libspectrum_word sector_size;
   libspectrum_hdf_header hdf;
