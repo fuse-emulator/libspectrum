@@ -97,7 +97,7 @@ AC_PATH_PROG(PERL, perl)
 AC_SUBST(PERL)
 
 dnl Checks for header files.
-AC_CHECK_HEADERS(stdint.h strings.h unistd.h)
+AC_CHECK_HEADERS(fcntl.h stdint.h strings.h unistd.h)
 
 dnl Check for host specific programs
 WINDRES_OBJ=
@@ -123,6 +123,7 @@ AC_C_BIGENDIAN
 
 dnl Check for functions
 AC_CHECK_FUNCS(_snprintf _stricmp _strnicmp snprintf strcasecmp strncasecmp fseeko ftello access)
+AC_CHECK_FUNCS(open fstat fcntl fdopen close symlink mkfifo fork alarm waitpid)
 
 dnl Allow the user to say that various libraries are in one place
 AC_ARG_WITH(local-prefix,

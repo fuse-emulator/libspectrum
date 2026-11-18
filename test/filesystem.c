@@ -1,6 +1,23 @@
 /* Filesystem contract and codec routing regression tests.
-   Copyright (c) 2026 Fredrick Meunier. GPL version 2 or later. */
+   Copyright (c) 2026 Fredrick Meunier
+
+   This program is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; either version 2 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License along
+   with this program; if not, write to the Free Software Foundation, Inc.,
+   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+*/
+
 #include "config.h"
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,6 +25,23 @@
 #include "internals.h"
 #ifdef _WIN32
 #include <aclapi.h>
+#elif defined HAVE_UNISTD_H
+#include <unistd.h>
+#ifdef HAVE_FCNTL_H
+#include <fcntl.h>
+#include <sys/stat.h>
+#if defined O_NONBLOCK && defined S_ISREG && defined HAVE_OPEN && \
+    defined HAVE_FSTAT && defined HAVE_FCNTL && defined HAVE_FDOPEN && \
+    defined HAVE_CLOSE
+#define TEST_NATIVE_VALIDATION 1
+#endif
+#endif
+#if defined TEST_NATIVE_VALIDATION && defined HAVE_MKFIFO && \
+    defined HAVE_FORK && defined HAVE_ALARM && defined HAVE_WAITPID
+#include <signal.h>
+#include <sys/wait.h>
+#define TEST_NATIVE_FIFO 1
+#endif
 #endif
 /* Separate executable: each scenario starts with a fresh filesystem selection. */
 
@@ -479,23 +513,63 @@ fail:
 #endif
 }
 
+#ifdef TEST_NATIVE_FIFO
+static int
+fifo_rejected(const char *name, libspectrum_fs_mode mode)
+{
+  const libspectrum_fs_operations ls_fs = libspectrum_fs;
+  pid_t child = fork(), waited;
+  int status;
+
+  if(child < 0) return 0;
+  if(!child) {
+    libspectrum_fs_handle *h = NULL;
+    sigset_t signals;
+    if(signal(SIGALRM, SIG_DFL) == SIG_ERR || sigemptyset(&signals) ||
+       sigaddset(&signals, SIGALRM) || sigprocmask(SIG_UNBLOCK, &signals, NULL))
+      _exit(2);
+    alarm(3);
+    _exit(ls_fs.open(name, mode, &h) && !h ? 0 : 1);
+  }
+  do {
+    waited = waitpid(child, &status, 0);
+  } while(waited < 0 && errno == EINTR);
+  if(waited == child && WIFSIGNALED(status) && WTERMSIG(status) == SIGALRM)
+    fprintf(stderr, "Native FIFO open exceeded its deadline (mode %d)\n", mode);
+  return waited == child && WIFEXITED(status) && !WEXITSTATUS(status);
+}
+#endif
+
 static int
 filesystem_native(int failed_first_use)
 {
   const libspectrum_fs_operations ls_fs = libspectrum_fs;
   libspectrum_fs_handle *h = NULL;
   ram r = { 0 };
-  int flag;
+  int flag, created = 0;
   int64_t length, position;
+  char bytes[3];
+  const char *name = "test-filesystem.tmp";
+#if !defined _WIN32 && defined HAVE_UNISTD_H && defined HAVE_SYMLINK
+  const char *link = "test-filesystem-link.tmp";
+  int linked = 0;
+#endif
+#ifdef TEST_NATIVE_FIFO
+  const char *fifo = "test-filesystem-fifo.tmp";
+  int fifo_created = 0;
+#endif
   if(failed_first_use) {
     REQUIRE(ls_fs.open("test-filesystem-missing/no-file", LIBSPECTRUM_FS_READ, &h) && !h);
     REQUIRE(libspectrum_fs_install(&ram_backend, &r));
     return 0;
   }
   /* Querying a name selects native too, without needing an open handle. */
-  REQUIRE(!ls_fs.exists("test-filesystem.tmp", &flag) && !flag);
+  REQUIRE(!ls_fs.exists(name, &flag) && !flag);
   REQUIRE(libspectrum_fs_install(&ram_backend, &r));
-  REQUIRE(!ls_fs.open("test-filesystem.tmp", LIBSPECTRUM_FS_WRITE, &h));
+  REQUIRE(ls_fs.open(name, LIBSPECTRUM_FS_READ_WRITE, &h) && !h);
+  REQUIRE(!ls_fs.exists(name, &flag) && !flag);
+  REQUIRE(!ls_fs.open(name, LIBSPECTRUM_FS_WRITE, &h));
+  created = 1;
   REQUIRE(!ls_fs.write_exact(h, "abc", 3));
   REQUIRE(!ls_fs.length(h, &length) && length == 3);
   REQUIRE(!ls_fs.tell(h, &position) && position == 3);
@@ -503,10 +577,47 @@ filesystem_native(int failed_first_use)
   REQUIRE(!libspectrum_init());
   CHECK_CLOSE(ls_fs.close, h, 0);
   REQUIRE(libspectrum_fs_install(&ram_backend, &r));
-  REQUIRE(!ls_fs.unlink("test-filesystem.tmp"));
+  REQUIRE(!ls_fs.open(name, LIBSPECTRUM_FS_READ, &h));
+  REQUIRE(!ls_fs.read_exact(h, bytes, sizeof(bytes)) && !memcmp(bytes, "abc", 3));
+  CHECK_CLOSE(ls_fs.close, h, 0);
+  REQUIRE(!ls_fs.open(name, LIBSPECTRUM_FS_READ_WRITE, &h));
+  REQUIRE(!ls_fs.read_exact(h, bytes, sizeof(bytes)) && !memcmp(bytes, "abc", 3));
+  REQUIRE(!ls_fs.seek(h, 1, LIBSPECTRUM_FS_START));
+  REQUIRE(!ls_fs.write_exact(h, "Z", 1));
+  CHECK_CLOSE(ls_fs.close, h, 0);
+  REQUIRE(!ls_fs.exists(".", &flag) && flag);
+#if defined _WIN32 || defined TEST_NATIVE_VALIDATION
+  REQUIRE(ls_fs.open(".", LIBSPECTRUM_FS_READ, &h) && !h);
+  REQUIRE(ls_fs.open(".", LIBSPECTRUM_FS_READ_WRITE, &h) && !h);
+#endif
+#if !defined _WIN32 && defined HAVE_UNISTD_H && defined HAVE_SYMLINK
+  REQUIRE(!symlink(name, link)); linked = 1;
+  REQUIRE(!ls_fs.open(link, LIBSPECTRUM_FS_READ, &h));
+  REQUIRE(!ls_fs.read_exact(h, bytes, sizeof(bytes)) && !memcmp(bytes, "aZc", 3));
+  CHECK_CLOSE(ls_fs.close, h, 0);
+  REQUIRE(!ls_fs.open(link, LIBSPECTRUM_FS_READ_WRITE, &h));
+  REQUIRE(!ls_fs.read_exact(h, bytes, sizeof(bytes)) && !memcmp(bytes, "aZc", 3));
+  CHECK_CLOSE(ls_fs.close, h, 0);
+  REQUIRE(!ls_fs.unlink(link)); linked = 0;
+#endif
+#ifdef TEST_NATIVE_FIFO
+  REQUIRE(!mkfifo(fifo, 0600)); fifo_created = 1;
+  REQUIRE(!ls_fs.exists(fifo, &flag) && flag);
+  REQUIRE(fifo_rejected(fifo, LIBSPECTRUM_FS_READ));
+  REQUIRE(fifo_rejected(fifo, LIBSPECTRUM_FS_READ_WRITE));
+  REQUIRE(!ls_fs.unlink(fifo)); fifo_created = 0;
+#endif
+  REQUIRE(!ls_fs.unlink(name));
   return 0;
 fail:
   if(h) ls_fs.close(h);
+#ifdef TEST_NATIVE_FIFO
+  if(fifo_created) ls_fs.unlink(fifo);
+#endif
+#if !defined _WIN32 && defined HAVE_UNISTD_H && defined HAVE_SYMLINK
+  if(linked) ls_fs.unlink(link);
+#endif
+  if(created) ls_fs.unlink(name);
   return 1;
 }
 

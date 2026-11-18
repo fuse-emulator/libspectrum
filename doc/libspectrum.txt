@@ -88,7 +88,12 @@ Close must be called exactly once and consumes the handle even on failure.
 Open modes are LIBSPECTRUM_FS_READ (existing), LIBSPECTRUM_FS_WRITE
 (create/truncate), LIBSPECTRUM_FS_READ_WRITE (existing, rb+ semantics), and
 LIBSPECTRUM_FS_APPEND (create, every write appends). There are no mode strings
-in the shared interface.
+in the shared interface. The built-in filesystem validates READ and READ_WRITE
+opens on Windows and on platforms with POSIX descriptor validation. The POSIX
+path opens nonblocking, checks the opened descriptor, then restores blocking
+I/O. Symlinks to regular files are accepted. Other platforms use stdio directly
+for both modes, without guaranteed rejection of special files or protection
+against blocking at open. The exists operation checks presence only.
 
 read/write take a requested byte count and a transferred-count output. Counts
 are initialized to zero before the backend call and validated against the

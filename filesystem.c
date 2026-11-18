@@ -19,6 +19,9 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#if defined _WIN32 || defined HAVE_FCNTL_H
+#include <fcntl.h>
+#endif
 #ifdef _WIN32
 #include <io.h>
 #elif defined HAVE_UNISTD_H
@@ -42,12 +45,60 @@ struct libspectrum_fs_handle {
 static int selected;
 static void *context;
 
+static FILE *
+native_open_input( const char *name, int update, const char *mode )
+{
+#ifdef _WIN32
+  int fd = _open( name, ( update ? _O_RDWR : _O_RDONLY ) | _O_BINARY );
+  FILE *stream = NULL;
+  if( fd < 0 ) return NULL;
+  {
+    HANDLE handle = (HANDLE)_get_osfhandle( fd );
+    BY_HANDLE_FILE_INFORMATION info;
+    if( GetFileType( handle ) == FILE_TYPE_DISK &&
+        GetFileInformationByHandle( handle, &info ) &&
+        !( info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+      stream = _fdopen( fd, mode );
+  }
+  if( !stream ) _close( fd );
+  return stream;
+#elif defined HAVE_UNISTD_H && defined HAVE_FCNTL_H && defined O_NONBLOCK && \
+      defined S_ISREG && defined HAVE_OPEN && defined HAVE_FSTAT && \
+      defined HAVE_FCNTL && defined HAVE_FDOPEN && defined HAVE_CLOSE
+  struct stat info;
+  int flags = ( update ? O_RDWR : O_RDONLY ) | O_NONBLOCK;
+  int fd;
+  FILE *stream = NULL;
+#ifdef O_BINARY
+  flags |= O_BINARY;
+#endif
+  fd = open( name, flags );
+  if( fd < 0 ) return NULL;
+
+  /* Validate the opened object before enabling blocking I/O. */
+  if( !fstat( fd, &info ) && S_ISREG( info.st_mode ) ) {
+    flags = fcntl( fd, F_GETFL );
+    if( flags >= 0 && !fcntl( fd, F_SETFL, flags & ~O_NONBLOCK ) )
+      stream = fdopen( fd, mode );
+  }
+  if( !stream ) close( fd );
+  return stream;
+#else
+  /* Preserve input support where descriptor validation is unavailable. */
+  (void)update;
+  return fopen( name, mode );
+#endif
+}
+
 static libspectrum_error
 native_open( void *ctx, const char *name, libspectrum_fs_mode mode, void **out )
 {
   static const char *modes[] = { "rb", "wb", "rb+", "ab" };
   (void)ctx;
-  *out = fopen( name, modes[mode] );
+  if( mode == LIBSPECTRUM_FS_READ || mode == LIBSPECTRUM_FS_READ_WRITE )
+    *out = native_open_input( name, mode == LIBSPECTRUM_FS_READ_WRITE, modes[mode] );
+  else
+    *out = fopen( name, modes[mode] );
   return *out ? LIBSPECTRUM_ERROR_NONE : IO_ERROR;
 }
 
