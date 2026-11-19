@@ -123,7 +123,7 @@ AC_C_BIGENDIAN
 
 dnl Check for functions
 AC_CHECK_FUNCS(_snprintf _stricmp _strnicmp snprintf strcasecmp strncasecmp fseeko ftello access)
-AC_CHECK_FUNCS(open fstat fcntl fdopen close symlink mkfifo fork alarm waitpid)
+AC_CHECK_FUNCS(open fstat fcntl fdopen close unlink symlink mkdir rmdir mkfifo fork alarm waitpid)
 
 dnl Allow the user to say that various libraries are in one place
 AC_ARG_WITH(local-prefix,

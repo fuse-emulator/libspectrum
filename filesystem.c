@@ -215,7 +215,14 @@ static libspectrum_error
 native_unlink( void *ctx, const char *name )
 {
   (void)ctx;
-  return remove( name ) ? IO_ERROR : LIBSPECTRUM_ERROR_NONE;
+#ifdef _WIN32
+  return _unlink( name ) ? IO_ERROR : LIBSPECTRUM_ERROR_NONE;
+#elif defined HAVE_UNISTD_H && defined HAVE_UNLINK
+  return unlink( name ) ? IO_ERROR : LIBSPECTRUM_ERROR_NONE;
+#else
+  (void)name;
+  return INVALID;
+#endif
 }
 
 #ifdef _WIN32

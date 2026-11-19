@@ -166,6 +166,7 @@ typedef struct libspectrum_fs_backend {
   /* A missing name is successful false, not an error. */
   libspectrum_error (*exists)(void *userdata, const char *name, int *exists);
 
+  /* Remove a file or symlink, never a directory or a symlink's target. */
   libspectrum_error (*unlink)(void *userdata, const char *name);
 
   /* Query permission without opening the file. Read-only is successful

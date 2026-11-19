@@ -25,11 +25,12 @@
 #include "internals.h"
 #ifdef _WIN32
 #include <aclapi.h>
+#include <direct.h>
 #elif defined HAVE_UNISTD_H
 #include <unistd.h>
+#include <sys/stat.h>
 #ifdef HAVE_FCNTL_H
 #include <fcntl.h>
-#include <sys/stat.h>
 #if defined O_NONBLOCK && defined S_ISREG && defined HAVE_OPEN && \
     defined HAVE_FSTAT && defined HAVE_FCNTL && defined HAVE_FDOPEN && \
     defined HAVE_CLOSE
@@ -550,6 +551,11 @@ filesystem_native(int failed_first_use)
   int64_t length, position;
   char bytes[3];
   const char *name = "test-filesystem.tmp";
+#if defined _WIN32 || (defined HAVE_UNISTD_H && defined HAVE_MKDIR && defined HAVE_RMDIR)
+#define TEST_NATIVE_UNLINK_DIRECTORY 1
+  const char *directory = "test-filesystem-unlink-dir.tmp";
+  int directory_created = 0;
+#endif
 #if !defined _WIN32 && defined HAVE_UNISTD_H && defined HAVE_SYMLINK
   const char *link = "test-filesystem-link.tmp";
   int linked = 0;
@@ -599,6 +605,10 @@ filesystem_native(int failed_first_use)
   REQUIRE(!ls_fs.read_exact(h, bytes, sizeof(bytes)) && !memcmp(bytes, "aZc", 3));
   CHECK_CLOSE(ls_fs.close, h, 0);
   REQUIRE(!ls_fs.unlink(link)); linked = 0;
+  REQUIRE(!ls_fs.exists(link, &flag) && !flag);
+  REQUIRE(!ls_fs.open(name, LIBSPECTRUM_FS_READ, &h));
+  REQUIRE(!ls_fs.read_exact(h, bytes, sizeof(bytes)) && !memcmp(bytes, "aZc", 3));
+  CHECK_CLOSE(ls_fs.close, h, 0);
 #endif
 #ifdef TEST_NATIVE_FIFO
   REQUIRE(!mkfifo(fifo, 0600)); fifo_created = 1;
@@ -607,10 +617,36 @@ filesystem_native(int failed_first_use)
   REQUIRE(fifo_rejected(fifo, LIBSPECTRUM_FS_READ_WRITE));
   REQUIRE(!ls_fs.unlink(fifo)); fifo_created = 0;
 #endif
-  REQUIRE(!ls_fs.unlink(name));
+#ifdef TEST_NATIVE_UNLINK_DIRECTORY
+#ifdef _WIN32
+  REQUIRE(!_mkdir(directory));
+#else
+  REQUIRE(!mkdir(directory, 0700));
+#endif
+  directory_created = 1;
+  REQUIRE(ls_fs.unlink(directory));
+  REQUIRE(!ls_fs.exists(directory, &flag) && flag);
+#ifdef _WIN32
+  REQUIRE(!_rmdir(directory));
+#else
+  REQUIRE(!rmdir(directory));
+#endif
+  directory_created = 0;
+#endif
+  REQUIRE(!ls_fs.unlink(name)); created = 0;
+  REQUIRE(!ls_fs.exists(name, &flag) && !flag);
   return 0;
 fail:
   if(h) ls_fs.close(h);
+#ifdef TEST_NATIVE_UNLINK_DIRECTORY
+  if(directory_created) {
+#ifdef _WIN32
+    _rmdir(directory);
+#else
+    rmdir(directory);
+#endif
+  }
+#endif
 #ifdef TEST_NATIVE_FIFO
   if(fifo_created) ls_fs.unlink(fifo);
 #endif

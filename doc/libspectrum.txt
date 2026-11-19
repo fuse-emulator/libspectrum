@@ -117,9 +117,11 @@ errors; flushing does not promise durable storage.
 exists and writable initialize their boolean output to false, including on
 failure. exists succeeds with false for a missing name. writable queries an
 existing logical file's permission without opening or truncating it; missing
-files are errors, and false is a valid permission result. unlink removes the
-logical name. These operations never probe a native name behind a custom
-backend. Backend failures are authoritative; errno is diagnostic only.
+files are errors, and false is a valid permission result. unlink removes a file
+or symlink without removing the symlink's target. Both built-in and custom
+implementations must reject directories. These operations never probe a native
+name behind a custom backend. Backend failures are authoritative; errno is
+diagnostic only.
 
 Native Windows writable checks the read-only attribute and uses the file's
 owner/group/DACL security descriptor with AccessCheck for GENERIC_WRITE. It
